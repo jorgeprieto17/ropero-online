@@ -12,6 +12,17 @@ let dbLocal;
 let isCloudConnected = false;
 let dbFirestore = null;
 
+// Configuración predeterminada de Firebase para conexión automática en cualquier dispositivo
+const DEFAULT_FIREBASE_CONFIG = {
+    apiKey: "AIzaSyAs-Wpf6JuS9n-aQ6Bo24gX6u2ZbMmmPCI",
+    authDomain: "ropero-online.firebaseapp.com",
+    projectId: "ropero-online",
+    storageBucket: "ropero-online.firebasestorage.app",
+    messagingSenderId: "457205175273",
+    appId: "1:457205175273:web:187d25b45fb4e662843178",
+    measurementId: "G-JV78V70XY9"
+};
+
 // DOM Elements
 const views = document.querySelectorAll('.view');
 const navBtns = document.querySelectorAll('.nav-btn');
@@ -106,8 +117,8 @@ function applyTheme(theme) {
 // FIREBASE CLOUD & LOCAL DB INITIALIZATION
 // ==========================================================================
 async function initCloudOrFallback() {
-    // 1. Obtener configuración de Firebase (desde config.js o desde localStorage)
-    let firebaseConfig = null;
+    // 1. Obtener configuración de Firebase (por defecto DEFAULT_FIREBASE_CONFIG para conexión automática)
+    let firebaseConfig = DEFAULT_FIREBASE_CONFIG;
 
     if (typeof CONFIG !== 'undefined' && CONFIG.FIREBASE_CONFIG && CONFIG.FIREBASE_CONFIG.apiKey) {
         firebaseConfig = CONFIG.FIREBASE_CONFIG;
@@ -120,7 +131,8 @@ async function initCloudOrFallback() {
             try {
                 firebaseConfig = JSON.parse(storedConfig);
             } catch (e) {
-                console.warn("Configuración guardada de Firebase inválida");
+                console.warn("Configuración guardada de Firebase inválida, usando predeterminada");
+                firebaseConfig = DEFAULT_FIREBASE_CONFIG;
             }
         }
     }
@@ -133,14 +145,25 @@ async function initCloudOrFallback() {
             dbFirestore = firebase.firestore();
             isCloudConnected = true;
             updateCloudUIState(true);
-            console.log("✅ Conectado exitosamente a Firebase Firestore");
+            console.log("✅ Conectado automáticamente a Firebase Firestore");
+
+            // Sincronización en tiempo real entre todos los dispositivos (computadora, celular, etc.)
+            dbFirestore.collection('prendas').onSnapshot(() => {
+                const activeCategory = document.querySelector('.filter-btn.active')
+                    ? document.querySelector('.filter-btn.active').getAttribute('data-category')
+                    : 'all';
+                loadWardrobe(activeCategory);
+            }, (err) => {
+                console.warn("Aviso en listener en tiempo real de Firestore:", err);
+            });
+
             return;
         } catch (error) {
             console.error("Fallo al conectar con Firebase:", error);
         }
     }
 
-    // Modo local si no hay Firebase
+    // Modo local de respaldo si no hay conexión
     isCloudConnected = false;
     updateCloudUIState(false);
 }

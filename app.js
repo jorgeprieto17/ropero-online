@@ -1,3 +1,7 @@
+// ==========================================================================
+// ROPERO ONLINE - APP JAVASCRIPT
+// ==========================================================================
+
 // Database configuration
 const DB_NAME = 'RoperoDB';
 const STORE_NAME = 'wardrobe';
@@ -10,33 +14,74 @@ const uploadPlaceholder = document.getElementById('upload-placeholder');
 const imageInput = document.getElementById('image-input');
 const previewContainer = document.getElementById('preview-container');
 const imagePreview = document.getElementById('image-preview');
-const processingOverlay = document.getElementById('processing-overlay');
+const loadingContainer = document.getElementById('loading-container');
 const uploadActions = document.getElementById('upload-actions');
 const btnCancel = document.getElementById('btn-cancel');
 const btnSave = document.getElementById('btn-save');
 const wardrobeGrid = document.getElementById('wardrobe-grid');
 const filterBtns = document.querySelectorAll('.filter-btn');
 const btnGenerate = document.getElementById('btn-generate');
+const wardrobeCounter = document.getElementById('wardrobe-counter');
+const categorySelectorWrapper = document.getElementById('category-selector-wrapper');
+const themeToggleBtn = document.getElementById('theme-toggle');
 
 let currentProcessedImage = null;
 let currentCategory = "";
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
+    initTheme();
     await initDB();
     setupNavigation();
     setupUploadHandlers();
     setupWardrobeFilters();
     setupOutfitGenerator();
+    setupCategoryPills();
     loadWardrobe('all');
 });
 
-// IndexedDB Setup
+// ==========================================================================
+// THEME MANAGEMENT (Dark / Light Mode)
+// ==========================================================================
+function initTheme() {
+    const savedTheme = localStorage.getItem('ropero-theme') || 'dark';
+    applyTheme(savedTheme);
+
+    if (themeToggleBtn) {
+        themeToggleBtn.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            applyTheme(newTheme);
+            localStorage.setItem('ropero-theme', newTheme);
+        });
+    }
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    const sunIcon = document.querySelector('.sun-icon');
+    const moonIcon = document.querySelector('.moon-icon');
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+
+    if (theme === 'light') {
+        if (sunIcon) sunIcon.classList.remove('hidden');
+        if (moonIcon) moonIcon.classList.add('hidden');
+        if (metaThemeColor) metaThemeColor.setAttribute('content', '#F8F6F2');
+    } else {
+        if (sunIcon) sunIcon.classList.add('hidden');
+        if (moonIcon) moonIcon.classList.remove('hidden');
+        if (metaThemeColor) metaThemeColor.setAttribute('content', '#090D16');
+    }
+}
+
+// ==========================================================================
+// INDEXEDDB SETUP
+// ==========================================================================
 function initDB() {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, 1);
 
-        request.onerror = (e) => reject("Error opening DB");
+        request.onerror = () => reject("Error opening DB");
 
         request.onsuccess = (e) => {
             db = e.target.result;
@@ -90,132 +135,87 @@ function deleteItemFromDB(id) {
     });
 }
 
-// Navigation Logic
+// ==========================================================================
+// NAVIGATION LOGIC
+// ==========================================================================
 function setupNavigation() {
     navBtns.forEach(btn => {
         btn.addEventListener('click', () => {
-            // Update active button
-            navBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-
-            // Show target view
             const targetId = btn.getAttribute('data-target');
-            views.forEach(view => {
-                if (view.id === targetId) {
-                    view.classList.remove('hidden');
-                    view.classList.add('active');
-                } else {
-                    view.classList.add('hidden');
-                    view.classList.remove('active');
-                }
-            });
-
-            // Refresh wardrobe if navigating to it
-            if (targetId === 'view-wardrobe') loadWardrobe('all');
+            switchToView(targetId);
         });
     });
 }
 
-// Upload & Processing Logic
+function switchToView(targetId) {
+    navBtns.forEach(b => {
+        if (b.getAttribute('data-target') === targetId) {
+            b.classList.add('active');
+        } else {
+            b.classList.remove('active');
+        }
+    });
+
+    views.forEach(view => {
+        if (view.id === targetId) {
+            view.classList.remove('hidden');
+            view.classList.add('active');
+        } else {
+            view.classList.add('hidden');
+            view.classList.remove('active');
+        }
+    });
+
+    if (targetId === 'view-wardrobe') {
+        const activeFilter = document.querySelector('.filter-btn.active');
+        const cat = activeFilter ? activeFilter.getAttribute('data-category') : 'all';
+        loadWardrobe(cat);
+    }
+}
+
+// ==========================================================================
+// UPLOAD & PROCESSING LOGIC
+// ==========================================================================
 function setupUploadHandlers() {
+    // Click to select
     uploadPlaceholder.addEventListener('click', () => {
         imageInput.click();
     });
 
+    // Drag & Drop
+    ['dragenter', 'dragover'].forEach(eventName => {
+        uploadPlaceholder.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadPlaceholder.classList.add('dragover');
+        });
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        uploadPlaceholder.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadPlaceholder.classList.remove('dragover');
+        });
+    });
+
+    uploadPlaceholder.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        if (files && files[0]) {
+            handleImageUpload(files[0]);
+        }
+    });
+
     imageInput.addEventListener('change', async (e) => {
         if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-
-            // Preparar UI
-            uploadPlaceholder.classList.add('hidden');
-            previewContainer.classList.remove('hidden');
-
-            // Ocultar img e iniciar carga
-            imagePreview.classList.add('hidden');
-            imagePreview.removeAttribute('src');
-
-            const loadingContainer = document.getElementById('loading-container') || document.getElementById('processing-overlay');
-            if (loadingContainer) loadingContainer.classList.remove('hidden');
-
-            let categoria = "Desconocido";
-
-            try {
-                const blobBlanco = await procesarPrenda(file);
-                if (!blobBlanco) throw new Error("Fallo al remover fondo");
-
-                currentProcessedImage = blobBlanco;
-
-                // Intentar clasificación (Falla amigable si no está lista o configurada)
-                try {
-                    const result = await clasificarConGemini(blobBlanco);
-                    categoria = result.categoria || "Desconocido";
-                    const descripcion = result.descripcion || categoria;
-
-                    currentCategory = categoria;
-
-                    // Actualizar texto de la IA (búsqueda flexible)
-                    const labelIA = document.getElementById('label-ia')
-                        || document.querySelector('.ia-detected-label')
-                        || document.querySelector('[id*="ia"]');
-                    if (labelIA) {
-                        labelIA.textContent = `IA detectó: ${descripcion}`;
-                        labelIA.classList.remove('hidden');
-                    }
-                } catch (geminiError) {
-                    console.warn("Fallo al clasificar con Gemini, se usará manual:", geminiError);
-                    categoria = "Desconocido";
-                    currentCategory = categoria;
-
-                    const labelIA = document.getElementById('label-ia')
-                        || document.querySelector('.ia-detected-label')
-                        || document.querySelector('[id*="ia"]');
-                    if (labelIA) {
-                        labelIA.innerHTML = `Fallo en IA. <button onclick="retryClassification()" style="margin-left: 10px; padding: 6px 12px; font-size: 0.85rem; font-weight: bold; background: var(--accent-color, #E27B58); color: white; border: none; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">↻ Reintentar IA</button>`;
-                        labelIA.classList.remove('hidden');
-                    }
-                }
-
-                // AHORA SÍ, mostramos la imagen ya que la IA terminó
-                const imageUrl = URL.createObjectURL(blobBlanco);
-                imagePreview.src = imageUrl;
-                imagePreview.onload = () => {
-                    imagePreview.classList.remove('hidden');
-                };
-
-            } catch (error) {
-                console.error("Fallo general en procesamiento:", error);
-                const labelIA = document.getElementById('label-ia')
-                    || document.querySelector('.ia-detected-label')
-                    || document.querySelector('[id*="ia"]');
-                if (labelIA) labelIA.textContent = "Error al procesar. Selección manual.";
-            } finally {
-                if (loadingContainer) loadingContainer.classList.add('hidden');
-                // --- MOSTRAR BOTONES (FALLBACK ABSOLUTO) ---
-                // Intentar mostrar botones individuales
-                const btnSave = document.getElementById('btnSave') || document.querySelector('.btn-save') || document.getElementById('btn-save');
-                const btnCancel = document.getElementById('btnCancel') || document.querySelector('.btn-cancel') || document.getElementById('btn-cancel');
-                if (btnSave) btnSave.style.display = 'block';
-                if (btnCancel) btnCancel.style.display = 'block';
-
-                // Intentar mostrar contenedores comunes
-                const actionButtons = document.getElementById('action-buttons')
-                    || document.querySelector('.action-buttons')
-                    || document.querySelector('.buttons-container')
-                    || document.querySelector('.upload-actions')
-                    || document.getElementById('upload-actions');
-
-                if (actionButtons) {
-                    actionButtons.classList.remove('hidden');
-                    actionButtons.style.display = 'flex'; // Forzar visibilidad
-                }
-            }
+            handleImageUpload(e.target.files[0]);
         }
     });
 
     btnCancel.addEventListener('click', resetUploadView);
 
     const btnSaveEl = document.getElementById('btnSave') || document.querySelector('.btn-save') || btnSave;
-
     if (btnSaveEl) {
         btnSaveEl.addEventListener('click', async () => {
             if (!currentProcessedImage) {
@@ -224,67 +224,123 @@ function setupUploadHandlers() {
             }
 
             try {
-                // Cambiar estado del botón
-                btnSaveEl.textContent = "Guardando...";
+                btnSaveEl.innerHTML = `<span>Guardando...</span>`;
                 btnSaveEl.disabled = true;
 
-                // Lógica de IndexedDB (Reemplazar con tu función real si ya existe)
                 await saveItemToDB({
                     image: currentProcessedImage,
-                    category: currentCategory || "Desconocido",
+                    category: currentCategory || "Top Base",
                     date: new Date().toISOString()
                 });
 
-                // Reiniciar vista
-                if (typeof resetUploadView === 'function') resetUploadView();
-                else window.location.reload(); // Fallback si no existe la función
-
+                resetUploadView();
+                switchToView('view-wardrobe');
             } catch (error) {
                 console.error("Error al guardar:", error);
                 alert("Hubo un error al guardar la prenda.");
             } finally {
-                btnSaveEl.textContent = "Guardar Prenda";
+                btnSaveEl.innerHTML = `
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                    <span>Guardar Prenda</span>
+                `;
                 btnSaveEl.disabled = false;
             }
         });
     }
 }
 
-// Función base de IndexedDB (si no existe)
-async function guardarEnIndexedDB(blob, categoria) {
-    return new Promise((resolve, reject) => {
-        // Forzamos versión 3 para obligar la actualización
-        const request = indexedDB.open('RoperoDB', 3);
+async function handleImageUpload(file) {
+    uploadPlaceholder.classList.add('hidden');
+    previewContainer.classList.remove('hidden');
+    imagePreview.classList.add('hidden');
+    imagePreview.removeAttribute('src');
 
-        request.onupgradeneeded = (e) => {
-            const db = e.target.result;
-            if (!db.objectStoreNames.contains('prendas')) {
-                db.createObjectStore('prendas', { keyPath: 'id', autoIncrement: true });
+    if (loadingContainer) loadingContainer.classList.remove('hidden');
+
+    let categoria = "Desconocido";
+
+    try {
+        const blobBlanco = await procesarPrenda(file);
+        if (!blobBlanco) throw new Error("Fallo al remover fondo");
+
+        currentProcessedImage = blobBlanco;
+
+        // Clasificar con Gemini
+        try {
+            const result = await clasificarConGemini(blobBlanco);
+            categoria = result.categoria || "Desconocido";
+            const descripcion = result.descripcion || categoria;
+            currentCategory = categoria;
+
+            const labelIA = document.getElementById('label-ia')
+                || document.querySelector('.ia-detected-label');
+            if (labelIA) {
+                labelIA.innerHTML = `<span>✨ IA detectó:</span> <strong>${descripcion}</strong>`;
+                labelIA.classList.remove('hidden');
             }
+            highlightCategoryPill(categoria);
+        } catch (geminiError) {
+            console.warn("Fallo al clasificar con Gemini:", geminiError);
+            categoria = "Top Base";
+            currentCategory = categoria;
+
+            const labelIA = document.getElementById('label-ia')
+                || document.querySelector('.ia-detected-label');
+            if (labelIA) {
+                labelIA.innerHTML = `<span>⚠️ Fallo en IA.</span> <button type="button" onclick="retryClassification()" style="margin-left: 8px; padding: 4px 10px; font-size: 0.8rem; font-weight: 600; background: var(--accent-gradient); color: white; border: none; border-radius: 999px; cursor: pointer;">↻ Reintentar</button>`;
+                labelIA.classList.remove('hidden');
+            }
+            highlightCategoryPill(categoria);
+        }
+
+        // Mostrar imagen procesada
+        const imageUrl = URL.createObjectURL(blobBlanco);
+        imagePreview.src = imageUrl;
+        imagePreview.onload = () => {
+            imagePreview.classList.remove('hidden');
         };
 
-        request.onsuccess = (e) => {
-            const db = e.target.result;
-            if (!db.objectStoreNames.contains('prendas')) {
-                return reject(new Error("La tabla 'prendas' no se creó correctamente."));
-            }
-            try {
-                const transaction = db.transaction(['prendas'], 'readwrite');
-                const store = transaction.objectStore('prendas');
-                const requestAdd = store.add({
-                    imagen: blob,
-                    categoria: categoria,
-                    fecha: new Date().toISOString()
-                });
+        if (categorySelectorWrapper) {
+            categorySelectorWrapper.classList.remove('hidden');
+        }
 
-                requestAdd.onsuccess = () => resolve();
-                requestAdd.onerror = () => reject(requestAdd.error);
-            } catch (err) {
-                reject(err);
-            }
-        };
+    } catch (error) {
+        console.error("Fallo general en procesamiento:", error);
+        const labelIA = document.getElementById('label-ia')
+            || document.querySelector('.ia-detected-label');
+        if (labelIA) {
+            labelIA.textContent = "Error al procesar la imagen.";
+            labelIA.classList.remove('hidden');
+        }
+    } finally {
+        if (loadingContainer) loadingContainer.classList.add('hidden');
+        if (uploadActions) {
+            uploadActions.classList.remove('hidden');
+            uploadActions.style.display = 'grid';
+        }
+    }
+}
 
-        request.onerror = () => reject(request.error);
+// Category selection pills in upload view
+function setupCategoryPills() {
+    const pills = document.querySelectorAll('.cat-pill');
+    pills.forEach(pill => {
+        pill.addEventListener('click', () => {
+            pills.forEach(p => p.classList.remove('active'));
+            pill.classList.add('active');
+            currentCategory = pill.getAttribute('data-category');
+        });
+    });
+}
+
+function highlightCategoryPill(category) {
+    const pills = document.querySelectorAll('.cat-pill');
+    pills.forEach(pill => {
+        if (pill.getAttribute('data-category') === category) {
+            pill.classList.add('active');
+        } else {
+            pill.classList.remove('active');
+        }
     });
 }
 
@@ -295,54 +351,19 @@ function resetUploadView() {
     uploadPlaceholder.classList.remove('hidden');
     previewContainer.classList.add('hidden');
     uploadActions.classList.add('hidden');
+    if (categorySelectorWrapper) categorySelectorWrapper.classList.add('hidden');
 
-    // Ocultar y limpiar etiqueta de IA
     const labelIA = document.getElementById('label-ia')
-        || document.querySelector('.ia-detected-label')
-        || document.querySelector('[id*="ia"]');
+        || document.querySelector('.ia-detected-label');
     if (labelIA) {
         labelIA.classList.add('hidden');
         labelIA.textContent = '';
     }
 }
 
-// Mock Processing: Removes background (simulated) and categorizes (simulated)
-function processImageMock(base64Image) {
-    processingOverlay.classList.remove('hidden');
-    uploadActions.classList.add('hidden');
-
-    // Simulate API delay (e.g. Remove.bg + Vision API)
-    setTimeout(() => {
-        // En una app real, aquí enviaríamos la imagen a una API para quitar el fondo
-        // y la reemplazaríamos por la imagen procesada sobre fondo blanco.
-        // Para el mockup, simulamos que la imagen original ya es el resultado y le asignamos una clase
-        currentProcessedImage = base64Image;
-
-        // Simular IA para categorizar la prenda aleatoriamente
-        const categories = ['Tops', 'Bottoms', 'Calzado'];
-        currentCategory = categories[Math.floor(Math.random() * categories.length)];
-
-        processingOverlay.classList.add('hidden');
-        uploadActions.classList.remove('hidden');
-
-        // Mostrar la categoría detectada en el UI
-        const detectionLabel = document.createElement('p');
-        detectionLabel.style.textAlign = 'center';
-        detectionLabel.style.margin = '10px 0';
-        detectionLabel.style.fontSize = '0.875rem';
-        detectionLabel.style.color = 'var(--text-secondary)';
-        detectionLabel.innerHTML = `IA detectó: <strong>${currentCategory}</strong>`;
-
-        // Remover label anterior si existe
-        const oldLabel = previewContainer.querySelector('p:not(.processing-overlay p)');
-        if (oldLabel) oldLabel.remove();
-
-        previewContainer.appendChild(detectionLabel);
-
-    }, 2000);
-}
-
-// Wardrobe Logic
+// ==========================================================================
+// WARDROBE VIEW
+// ==========================================================================
 function setupWardrobeFilters() {
     filterBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -355,11 +376,29 @@ function setupWardrobeFilters() {
 }
 
 async function loadWardrobe(category) {
-    const items = await getItemsFromDB(category);
+    const allItems = await getItemsFromDB('all');
+    const items = category === 'all' 
+        ? allItems 
+        : allItems.filter(item => item.category === category);
+
+    if (wardrobeCounter) {
+        wardrobeCounter.textContent = `${allItems.length} ${allItems.length === 1 ? 'prenda' : 'prendas'}`;
+    }
+
     wardrobeGrid.innerHTML = '';
 
     if (items.length === 0) {
-        wardrobeGrid.innerHTML = `<p style="grid-column: span 2; text-align: center; color: var(--text-secondary); margin-top: 20px;">No hay prendas en esta categoría.</p>`;
+        wardrobeGrid.innerHTML = `
+            <div class="wardrobe-empty-state">
+                <div class="empty-state-icon">✨</div>
+                <h3>Sin prendas en esta sección</h3>
+                <p>Añade tus prendas para empezar a crear combinaciones automáticas con IA.</p>
+                <button type="button" class="btn btn-primary" onclick="switchToView('view-upload')" style="margin-top: 6px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                    <span>Subir Prenda</span>
+                </button>
+            </div>
+        `;
         return;
     }
 
@@ -371,20 +410,30 @@ async function loadWardrobe(category) {
             ? URL.createObjectURL(item.image)
             : item.image;
 
-        div.style.position = 'relative'; // Para posicionar el botón de eliminar
         div.innerHTML = `
-            <img src="${imageUrl}" alt="Prenda">
-            <span>${item.category}</span>
-            <button class="delete-btn" data-id="${item.id}" style="position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; width: 26px; height: 26px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; transition: background 0.2s;">✕</button>
+            <div class="wardrobe-card-media">
+                <img src="${imageUrl}" alt="${item.category}" loading="lazy">
+                <button class="delete-btn" data-id="${item.id}" title="Eliminar prenda" aria-label="Eliminar prenda">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="wardrobe-card-info">
+                <span class="wardrobe-badge">${item.category}</span>
+            </div>
         `;
         wardrobeGrid.appendChild(div);
     });
 
-    // Agregar funcionalidad de eliminar
-    document.querySelectorAll('.delete-btn').forEach(btn => {
+    // Eventos para eliminar
+    wardrobeGrid.querySelectorAll('.delete-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
-            const id = Number(e.target.getAttribute('data-id'));
-            if (confirm("¿Estás seguro de que quieres eliminar esta prenda de tu armario?")) {
+            e.stopPropagation();
+            const btnEl = e.currentTarget;
+            const id = Number(btnEl.getAttribute('data-id'));
+            if (confirm("¿Deseas eliminar esta prenda de tu armario?")) {
                 await deleteItemFromDB(id);
                 const activeCategory = document.querySelector('.filter-btn.active').getAttribute('data-category');
                 loadWardrobe(activeCategory);
@@ -393,7 +442,9 @@ async function loadWardrobe(category) {
     });
 }
 
-// Outfit Generator Logic
+// ==========================================================================
+// OUTFIT GENERATOR LOGIC
+// ==========================================================================
 function setupOutfitGenerator() {
     btnGenerate.addEventListener('click', generateOutfit);
 }
@@ -406,9 +457,10 @@ async function generateOutfit() {
         'Calzado': document.getElementById('slot-shoes')
     };
 
-    // Añadir efecto de carga
+    // Efecto visual de generación
+    btnGenerate.classList.add('loading');
     Object.values(slots).forEach(slot => {
-        if (slot) slot.style.opacity = '0.5';
+        if (slot) slot.style.opacity = '0.4';
     });
 
     try {
@@ -418,40 +470,53 @@ async function generateOutfit() {
         const shoes = await getItemsFromDB('Calzado');
 
         setTimeout(() => {
-            if (slots['Capa Extra']) updateSlot(slots['Capa Extra'], layers, 'Sin Capa Extra');
-            if (slots['Top Base']) updateSlot(slots['Top Base'], tops, 'Sin Top Base');
-            if (slots['Bottoms']) updateSlot(slots['Bottoms'], bottoms, 'Sin Bottom');
-            if (slots['Calzado']) updateSlot(slots['Calzado'], shoes, 'Sin Calzado');
+            if (slots['Capa Extra']) updateSlot(slots['Capa Extra'], layers, 'Sin Capa Extra', '🧥');
+            if (slots['Top Base']) updateSlot(slots['Top Base'], tops, 'Sin Top Base', '👕');
+            if (slots['Bottoms']) updateSlot(slots['Bottoms'], bottoms, 'Sin Bottom', '👖');
+            if (slots['Calzado']) updateSlot(slots['Calzado'], shoes, 'Sin Calzado', '👟');
 
             Object.values(slots).forEach(slot => {
                 if (slot) {
                     slot.style.opacity = '1';
-                    slot.style.transition = 'opacity 0.3s ease';
                 }
             });
-        }, 500); // Simulando pequeño delay de "pensamiento de la IA"
+
+            btnGenerate.classList.remove('loading');
+        }, 400);
 
     } catch (e) {
         console.error("Error generando outfit", e);
+        btnGenerate.classList.remove('loading');
     }
 }
 
-function updateSlot(slotElement, itemsArray, emptyText) {
+function updateSlot(slotElement, itemsArray, emptyText, icon) {
     if (itemsArray.length > 0) {
         const randomItem = itemsArray[Math.floor(Math.random() * itemsArray.length)];
         const imageUrl = (randomItem.image instanceof Blob || randomItem.image instanceof File) 
             ? URL.createObjectURL(randomItem.image) 
             : randomItem.image;
-        slotElement.innerHTML = `<img src="${imageUrl}" alt="Outfit part" style="width: 100%; height: 100%; object-fit: cover; border-radius: 16px; display: block;">`;
+        slotElement.classList.add('has-item');
+        slotElement.innerHTML = `
+            <div class="outfit-slot-filled">
+                <img src="${imageUrl}" alt="Prenda de outfit" class="slot-image">
+            </div>
+        `;
     } else {
-        slotElement.innerHTML = `<p class="slot-empty">${emptyText}</p>`;
+        slotElement.classList.remove('has-item');
+        slotElement.innerHTML = `
+            <div class="slot-empty-content">
+                <span class="slot-empty-icon">${icon || '✕'}</span>
+                <p class="slot-empty">${emptyText}</p>
+            </div>
+        `;
     }
 }
 
-
-// Función para procesar la imagen con Remove.bg
+// ==========================================================================
+// REMOVE.BG & GEMINI APIS
+// ==========================================================================
 async function procesarPrenda(archivoImagen) {
-    // Obtiene la clave desde config.js
     const apiKey = (typeof CONFIG !== 'undefined' && CONFIG.REMOVE_BG_API_KEY) ? CONFIG.REMOVE_BG_API_KEY : '';
     const formData = new FormData();
 
@@ -466,28 +531,26 @@ async function procesarPrenda(archivoImagen) {
             body: formData
         });
 
-        if (!respuesta.ok) throw new Error('Error de conexión con la API');
+        if (!respuesta.ok) throw new Error('Error de conexión con la API de Remove.bg');
 
         const blobBlanco = await respuesta.blob();
         return blobBlanco;
 
     } catch (error) {
         console.error('Fallo en el procesamiento:', error);
-        alert('Error al remover el fondo. Verifica tu conexión o API Key.');
+        alert('Error al remover el fondo. Verifica tu conexión o API Key de Remove.bg.');
+        return null;
     }
 }
 
-
 async function clasificarConGemini(blobImagen) {
-    // 1. Obtiene la clave de Gemini desde config.js
     const geminiApiKey = (typeof CONFIG !== 'undefined' && CONFIG.GEMINI_API_KEY) ? CONFIG.GEMINI_API_KEY : '';
 
-    // 2. Redimensionar y comprimir imagen para mayor velocidad
     const base64Image = await new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
             const canvas = document.createElement('canvas');
-            const MAX_SIZE = 600; // Resolución óptima para IA
+            const MAX_SIZE = 600;
             let width = img.width;
             let height = img.height;
 
@@ -504,7 +567,6 @@ async function clasificarConGemini(blobImagen) {
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, width, height);
 
-            // Comprimir a JPEG con 80% de calidad reduce el peso en un 90%
             const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
             resolve(dataUrl.split(',')[1]);
         };
@@ -512,7 +574,6 @@ async function clasificarConGemini(blobImagen) {
         img.src = URL.createObjectURL(blobImagen);
     });
 
-    // 3. Estructura estricta del Payload para Gemini 1.5
     const payload = {
         contents: [{
             parts: [
@@ -522,7 +583,6 @@ async function clasificarConGemini(blobImagen) {
         }]
     };
 
-    // 4. Petición limpia usando el modelo compatible
     const urlAPI = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiApiKey.trim()}`;
 
     const response = await fetch(urlAPI, {
@@ -536,7 +596,6 @@ async function clasificarConGemini(blobImagen) {
         throw new Error(`Error Gemini HTTP ${response.status}: ${errorText}`);
     }
 
-    // 5. Procesamiento de respuesta
     const data = await response.json();
     let textoRespuesta = data.candidates[0].content.parts[0].text;
     textoRespuesta = textoRespuesta.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -546,31 +605,32 @@ async function clasificarConGemini(blobImagen) {
 // Global retry function
 window.retryClassification = async function() {
     const labelIA = document.getElementById('label-ia')
-        || document.querySelector('.ia-detected-label')
-        || document.querySelector('[id*="ia"]');
+        || document.querySelector('.ia-detected-label');
         
     if (!currentProcessedImage) return;
 
     if (labelIA) {
-        labelIA.innerHTML = 'Reintentando con IA...';
+        labelIA.innerHTML = '<span>⏳ Reintentando clasificación con IA...</span>';
     }
 
-    const loadingContainer = document.getElementById('loading-container') || document.getElementById('processing-overlay');
     if (loadingContainer) loadingContainer.classList.remove('hidden');
 
     try {
         const result = await clasificarConGemini(currentProcessedImage);
-        currentCategory = result.categoria || "Desconocido";
+        currentCategory = result.categoria || "Top Base";
         const descripcion = result.descripcion || currentCategory;
         if (labelIA) {
-            labelIA.textContent = `IA detectó: ${descripcion}`;
+            labelIA.innerHTML = `<span>✨ IA detectó:</span> <strong>${descripcion}</strong>`;
         }
+        highlightCategoryPill(currentCategory);
     } catch (geminiError) {
         console.warn("Fallo al reintentar clasificar con Gemini:", geminiError);
         if (labelIA) {
-            labelIA.innerHTML = `Fallo en IA. <button onclick="retryClassification()" style="margin-left: 10px; padding: 6px 12px; font-size: 0.85rem; font-weight: bold; background: var(--accent-color, #E27B58); color: white; border: none; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">↻ Reintentar IA</button>`;
+            labelIA.innerHTML = `<span>⚠️ Fallo en IA.</span> <button type="button" onclick="retryClassification()" style="margin-left: 8px; padding: 4px 10px; font-size: 0.8rem; font-weight: 600; background: var(--accent-gradient); color: white; border: none; border-radius: 999px; cursor: pointer;">↻ Reintentar</button>`;
         }
     } finally {
         if (loadingContainer) loadingContainer.classList.add('hidden');
     }
-}
+};
+
+window.switchToView = switchToView;

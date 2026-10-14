@@ -1,100 +1,275 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ropero Online</title>
+    <title>Ropero Online | Armario Inteligente con IA</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#fdfbf7">
+    <meta name="theme-color" content="#090D16">
 </head>
 <body>
+    <div class="ambient-glow glow-top"></div>
+    <div class="ambient-glow glow-bottom"></div>
+
+    <!-- Header Principal -->
     <header class="app-header">
-        <h1>Ropero Online</h1>
+        <div class="header-inner">
+            <div class="brand">
+                <div class="brand-badge">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <h1>Ropero Online</h1>
+                    <span class="brand-tag">Armario Inteligente</span>
+                </div>
+            </div>
+            
+            <div class="header-actions">
+                <button id="theme-toggle" class="icon-btn theme-toggle-btn" aria-label="Cambiar tema visual" title="Cambiar tema">
+                    <svg class="sun-icon hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                    <svg class="moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
     </header>
 
+    <!-- Contenido Principal -->
     <main class="app-main">
         <!-- Vista: Cargar Prenda -->
         <section id="view-upload" class="view active">
+            <div class="view-intro">
+                <span class="section-pill">Nuevo Ingreso</span>
+                <h2>Sube tu Prenda</h2>
+                <p>Nuestra IA remueve el fondo automáticamente y categoriza la prenda al instante.</p>
+            </div>
+
             <div class="upload-container">
                 <div class="upload-placeholder" id="upload-placeholder">
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                        <polyline points="21 15 16 10 5 21"></polyline>
-                    </svg>
-                    <p>Capturar o Subir Prenda</p>
+                    <div class="upload-icon-pulse">
+                        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                    </div>
+                    <h3>Tomar foto o subir archivo</h3>
+                    <p class="upload-subtext">Haz clic o arrastra una imagen aquí</p>
+                    <div class="upload-chips">
+                        <span class="chip"><span class="chip-spark">✨</span> Fondo Blanco HD</span>
+                        <span class="chip"><span class="chip-spark">⚡</span> Gemini Vision</span>
+                    </div>
                 </div>
                 <input type="file" id="image-input" accept="image/*" capture="environment" hidden>
                 
                 <div id="preview-container" class="preview-container hidden">
                     <div id="loading-container" class="loading-container hidden">
-                        <div class="spinner"></div>
-                        <p>Procesando con IA...</p>
+                        <div class="ai-processing-box">
+                            <div class="ai-rings">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </div>
+                            <div class="ai-center-icon">✨</div>
+                        </div>
+                        <h4>Procesando Prenda con IA</h4>
+                        <p class="loading-subtext">Removiendo fondo y clasificando...</p>
                     </div>
-                    <img id="image-preview" src="" alt="Vista previa" class="hidden">
+                    
+                    <div class="preview-card">
+                        <img id="image-preview" src="" alt="Vista previa" class="hidden">
+                    </div>
                 </div>
 
-                <p id="label-ia" class="ia-detected-label text-center font-bold my-4 hidden"></p>
+                <div id="label-ia" class="ia-detected-label hidden"></div>
+
+                <!-- Selector manual de categoría opcional -->
+                <div id="category-selector-wrapper" class="category-selector-wrapper hidden">
+                    <span class="selector-heading">Categoría asignada:</span>
+                    <div class="selector-pills">
+                        <button type="button" class="cat-pill" data-category="Top Base">👕 Top Base</button>
+                        <button type="button" class="cat-pill" data-category="Capa Extra">🧥 Capa Extra</button>
+                        <button type="button" class="cat-pill" data-category="Bottoms">👖 Bottoms</button>
+                        <button type="button" class="cat-pill" data-category="Calzado">👟 Calzado</button>
+                    </div>
+                </div>
 
                 <div class="action-buttons hidden" id="upload-actions">
-                    <button class="btn btn-outline" id="btn-cancel">Cancelar</button>
-                    <button class="btn btn-primary" id="btn-save">Guardar Prenda</button>
+                    <button class="btn btn-outline" id="btn-cancel">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        <span>Cancelar</span>
+                    </button>
+                    <button class="btn btn-primary" id="btn-save">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                        <span>Guardar Prenda</span>
+                    </button>
                 </div>
             </div>
         </section>
 
         <!-- Vista: Armario -->
         <section id="view-wardrobe" class="view hidden">
-            <div class="category-filters">
-                <button class="filter-btn active" data-category="all">Todo</button>
-                <button class="filter-btn" data-category="Top Base">Tops</button>
-                <button class="filter-btn" data-category="Capa Extra">Capas</button>
-                <button class="filter-btn" data-category="Bottoms">Bottoms</button>
-                <button class="filter-btn" data-category="Calzado">Calzado</button>
+            <div class="wardrobe-header">
+                <div>
+                    <span class="section-pill">Tu Colección</span>
+                    <h2>Mi Armario</h2>
+                </div>
+                <div id="wardrobe-counter" class="counter-badge">0 prendas</div>
             </div>
+
+            <div class="category-filters-container">
+                <div class="category-filters">
+                    <button class="filter-btn active" data-category="all">
+                        <span>✨ Todo</span>
+                    </button>
+                    <button class="filter-btn" data-category="Top Base">
+                        <span>👕 Tops</span>
+                    </button>
+                    <button class="filter-btn" data-category="Capa Extra">
+                        <span>🧥 Capas</span>
+                    </button>
+                    <button class="filter-btn" data-category="Bottoms">
+                        <span>👖 Bottoms</span>
+                    </button>
+                    <button class="filter-btn" data-category="Calzado">
+                        <span>👟 Calzado</span>
+                    </button>
+                </div>
+            </div>
+
             <div class="wardrobe-grid" id="wardrobe-grid">
-                <!-- Items se renderizan aquí -->
+                <!-- Items se renderizan dinámicamente -->
             </div>
         </section>
 
         <!-- Vista: Generador de Outfits -->
         <section id="view-outfits" class="view hidden">
             <div class="outfit-generator">
-                <button class="btn btn-primary generate-btn" id="btn-generate">Generar Nuevo Outfit ✨</button>
+                <div class="outfit-hero-banner">
+                    <div class="hero-content">
+                        <span class="hero-badge">Estilista IA Personal</span>
+                        <h2>Inspira tu Día</h2>
+                        <p>Combina tus prendas guardadas y descubre nuevas combinaciones al instante.</p>
+                        <button class="btn btn-primary generate-btn" id="btn-generate">
+                            <span class="generate-sparkle">✨</span>
+                            <span>Generar Nuevo Outfit</span>
+                        </button>
+                    </div>
+                </div>
                 
-                <div class="outfit-display" id="outfit-display">
-                    <div class="outfit-slot" id="slot-layer">
-                        <p class="slot-empty">Sin Capa Extra</p>
+                <div class="lookbook-container">
+                    <div class="lookbook-header">
+                        <div class="lookbook-title">
+                            <span class="lookbook-dot"></span>
+                            <span>Outfit Sugerido</span>
+                        </div>
+                        <span class="lookbook-counter">4 slots</span>
                     </div>
-                    <div class="outfit-slot" id="slot-top">
-                        <p class="slot-empty">Sin Top Base</p>
-                    </div>
-                    <div class="outfit-slot" id="slot-bottom">
-                        <p class="slot-empty">Sin Bottom</p>
-                    </div>
-                    <div class="outfit-slot" id="slot-shoes">
-                        <p class="slot-empty">Sin Calzado</p>
+
+                    <div class="outfit-display" id="outfit-display">
+                        <div class="outfit-card-slot" data-slot="layer">
+                            <div class="slot-header">
+                                <span class="slot-tag">🧥 Capa Extra</span>
+                            </div>
+                            <div class="outfit-slot" id="slot-layer">
+                                <div class="slot-empty-content">
+                                    <span class="slot-empty-icon">🧥</span>
+                                    <p class="slot-empty">Sin Capa Extra</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="outfit-card-slot" data-slot="top">
+                            <div class="slot-header">
+                                <span class="slot-tag">👕 Top Base</span>
+                            </div>
+                            <div class="outfit-slot" id="slot-top">
+                                <div class="slot-empty-content">
+                                    <span class="slot-empty-icon">👕</span>
+                                    <p class="slot-empty">Sin Top Base</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="outfit-card-slot" data-slot="bottom">
+                            <div class="slot-header">
+                                <span class="slot-tag">👖 Bottoms</span>
+                            </div>
+                            <div class="outfit-slot" id="slot-bottom">
+                                <div class="slot-empty-content">
+                                    <span class="slot-empty-icon">👖</span>
+                                    <p class="slot-empty">Sin Bottom</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="outfit-card-slot" data-slot="shoes">
+                            <div class="slot-header">
+                                <span class="slot-tag">👟 Calzado</span>
+                            </div>
+                            <div class="outfit-slot" id="slot-shoes">
+                                <div class="slot-empty-content">
+                                    <span class="slot-empty-icon">👟</span>
+                                    <p class="slot-empty">Sin Calzado</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         </section>
     </main>
 
+    <!-- Barra de Navegación Inferior (Floating Dock) -->
     <nav class="bottom-nav">
-        <button class="nav-btn active" data-target="view-upload">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            <span>Subir</span>
-        </button>
-        <button class="nav-btn" data-target="view-wardrobe">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-            <span>Armario</span>
-        </button>
-        <button class="nav-btn" data-target="view-outfits">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-            <span>Outfits</span>
-        </button>
+        <div class="nav-dock">
+            <button class="nav-btn active" data-target="view-upload" aria-label="Subir prenda">
+                <div class="nav-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="9"/>
+                        <line x1="12" y1="8" x2="12" y2="16"/>
+                        <line x1="8" y1="12" x2="16" y2="12"/>
+                    </svg>
+                </div>
+                <span>Añadir</span>
+            </button>
+            <button class="nav-btn" data-target="view-wardrobe" aria-label="Ver armario">
+                <div class="nav-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>
+                        <line x1="12" y1="3" x2="12" y2="21"/>
+                        <line x1="9" y1="10" x2="9" y2="10.01"/>
+                        <line x1="15" y1="10" x2="15" y2="10.01"/>
+                    </svg>
+                </div>
+                <span>Armario</span>
+            </button>
+            <button class="nav-btn" data-target="view-outfits" aria-label="Generador de outfits">
+                <div class="nav-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                    </svg>
+                </div>
+                <span>Outfits</span>
+            </button>
+        </div>
     </nav>
 
     <script src="config.js"></script>

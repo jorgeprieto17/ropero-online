@@ -346,19 +346,8 @@ function blobToBase64(blob) {
 // SETTINGS MODAL & CLOUD CONFIGURATION
 // ==========================================================================
 function setupSettingsModal() {
-    // Abrir modal
-    if (btnCloudStatus) btnCloudStatus.addEventListener('click', openSettingsModal);
-    if (btnOpenSettings) btnOpenSettings.addEventListener('click', openSettingsModal);
+    // Modo automático: no requiere modal manual
 
-    // Cerrar modal
-    if (btnCloseSettings) btnCloseSettings.addEventListener('click', closeSettingsModal);
-    if (btnCloseModalFooter) btnCloseModalFooter.addEventListener('click', closeSettingsModal);
-
-    if (settingsModal) {
-        settingsModal.addEventListener('click', (e) => {
-            if (e.target === settingsModal) closeSettingsModal();
-        });
-    }
 
     // Cargar claves de API existentes en los inputs
     if (removeBgKeyInput) {

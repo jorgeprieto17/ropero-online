@@ -1145,16 +1145,11 @@ h1, h2, h3, h4 {
     font-family: inherit;
     font-size: 0.78rem;
     font-weight: 600;
-    cursor: pointer;
+    cursor: default;
     border: 1px solid var(--border-subtle);
     background: var(--bg-surface);
     color: var(--text-secondary);
     transition: all 0.2s ease;
-}
-
-.cloud-status-badge:hover {
-    border-color: var(--border-hover);
-    transform: translateY(-1px);
 }
 
 .status-dot {

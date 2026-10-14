@@ -1132,3 +1132,277 @@ h1, h2, h3, h4 {
         display: inline;
     }
 }
+
+/* ==========================================================================
+   CLOUD STATUS BADGE & SETTINGS MODAL
+   ========================================================================== */
+.cloud-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+}
+
+.cloud-status-badge:hover {
+    border-color: var(--border-hover);
+    transform: translateY(-1px);
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    transition: background 0.3s ease;
+}
+
+.cloud-status-badge.offline .status-dot {
+    background: #F59E0B;
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+}
+
+.cloud-status-badge.online {
+    border-color: rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.08);
+    color: #10B981;
+}
+
+.cloud-status-badge.online .status-dot {
+    background: #10B981;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+@media (max-width: 520px) {
+    .cloud-status-badge .status-text {
+        display: none;
+    }
+    .cloud-status-badge {
+        padding: 8px 10px;
+    }
+}
+
+/* Modal Backdrop & Window */
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    animation: modalOverlayFade 0.25s ease;
+}
+
+@keyframes modalOverlayFade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.modal-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 24px;
+    width: 100%;
+    max-width: 520px;
+    max-height: 88vh;
+    overflow-y: auto;
+    box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    animation: modalCardPop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalCardPop {
+    from { opacity: 0; transform: scale(0.95) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.modal-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.modal-title h3 {
+    font-size: 1.2rem;
+}
+
+.modal-close-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface-elevated);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.modal-close-btn:hover {
+    background: var(--border-hover);
+    color: var(--text-primary);
+}
+
+/* Current connection info box */
+.current-connection-box {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-subtle);
+}
+
+.conn-icon-wrap {
+    font-size: 1.8rem;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--bg-surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-subtle);
+}
+
+.conn-info strong {
+    display: block;
+    font-size: 0.95rem;
+    margin-bottom: 2px;
+}
+
+.conn-info p {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.35;
+}
+
+/* Settings Sections */
+.modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.settings-section {
+    padding: 16px;
+    background: var(--bg-surface-glass);
+    border: 1px solid var(--border-subtle);
+    border-radius: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.section-label-group h4 {
+    font-size: 0.95rem;
+    margin-bottom: 4px;
+}
+
+.section-help {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.input-group label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.input-group input,
+.input-group textarea {
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-family: inherit;
+    font-size: 0.88rem;
+    color: var(--text-primary);
+    transition: all 0.2s ease;
+    resize: vertical;
+}
+
+.input-group textarea {
+    font-family: monospace;
+    font-size: 0.82rem;
+}
+
+.input-group input:focus,
+.input-group textarea:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.btn-group-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.btn-sm {
+    padding: 10px 18px;
+    font-size: 0.86rem;
+    border-radius: 12px;
+}
+
+.status-note {
+    font-size: 0.82rem;
+    padding: 8px 12px;
+    border-radius: 10px;
+    margin-top: 4px;
+}
+
+.status-note.success {
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #10B981;
+}
+
+.status-note.error {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #EF4444;
+}
+
+.status-note.info {
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    color: #60A5FA;
+}
+

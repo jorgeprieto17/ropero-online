@@ -31,6 +31,21 @@
             </div>
             
             <div class="header-actions">
+                <!-- Indicador de Nube / Local -->
+                <button id="btn-cloud-status" class="cloud-status-badge offline" title="Estado de la nube (haz clic para configurar)" aria-label="Estado de la nube">
+                    <span class="status-dot"></span>
+                    <span id="cloud-status-text" class="status-text">Modo Local</span>
+                </button>
+
+                <!-- Botón de Configuración -->
+                <button id="btn-open-settings" class="icon-btn" title="Configurar Nube y Claves" aria-label="Configuración">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
+
+                <!-- Toggle Tema Oscuro / Claro -->
                 <button id="theme-toggle" class="icon-btn theme-toggle-btn" aria-label="Cambiar tema visual" title="Cambiar tema">
                     <svg class="sun-icon hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="5"></circle>
@@ -100,7 +115,7 @@
 
                 <div id="label-ia" class="ia-detected-label hidden"></div>
 
-                <!-- Selector manual de categoría opcional -->
+                <!-- Selector manual de categoría -->
                 <div id="category-selector-wrapper" class="category-selector-wrapper hidden">
                     <span class="selector-heading">Categoría asignada:</span>
                     <div class="selector-pills">
@@ -237,6 +252,99 @@
         </section>
     </main>
 
+    <!-- Modal de Configuración y Firebase -->
+    <div id="settings-modal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <span class="modal-icon">☁️</span>
+                    <h3>Sincronización y Nube</h3>
+                </div>
+                <button type="button" id="btn-close-settings" class="modal-close-btn" aria-label="Cerrar modal">✕</button>
+            </div>
+            
+            <div class="modal-body">
+                <!-- Estado actual -->
+                <div class="current-connection-box">
+                    <div class="conn-icon-wrap">
+                        <span id="conn-icon">☁️</span>
+                    </div>
+                    <div class="conn-info">
+                        <strong id="conn-title">Modo Local Activo</strong>
+                        <p id="conn-desc">Tus prendas se guardan en este navegador. Conecta Firebase para sincronizarlas en la nube.</p>
+                    </div>
+                </div>
+
+                <!-- Configuración de Firebase -->
+                <div class="settings-section">
+                    <div class="section-label-group">
+                        <h4>1. Conexión Firebase Firestore</h4>
+                        <p class="section-help">Pega el bloque de configuración que te da Firebase al crear una aplicación web.</p>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="firebase-config-input">Objeto de Configuración Firebase:</label>
+                        <textarea id="firebase-config-input" rows="4" placeholder='const firebaseConfig = {
+  apiKey: "AIzaSy...",
+  authDomain: "...",
+  projectId: "...",
+  ...
+};'></textarea>
+                    </div>
+
+                    <div class="btn-group-row">
+                        <button type="button" id="btn-connect-firebase" class="btn btn-primary btn-sm">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+                            <span>Conectar con Firebase</span>
+                        </button>
+                        <button type="button" id="btn-disconnect-firebase" class="btn btn-outline btn-sm hidden">
+                            <span>Desconectar Nube</span>
+                        </button>
+                    </div>
+                    <p id="firebase-status-msg" class="status-note hidden"></p>
+                </div>
+
+                <!-- Migración de prendas locales a Firebase -->
+                <div class="settings-section" id="section-migration">
+                    <div class="section-label-group">
+                        <h4>2. Sincronizar Prendas Locales</h4>
+                        <p class="section-help">Si ya tenías prendas subidas en tu navegador local, súbelas a Firebase con un solo clic.</p>
+                    </div>
+                    <button type="button" id="btn-migrate-local" class="btn btn-outline btn-sm" disabled>
+                        <span>⬆️ Subir Prendas Locales a Firebase</span>
+                    </button>
+                    <p id="migration-status-msg" class="status-note hidden"></p>
+                </div>
+
+                <!-- Claves de IA para GitHub Pages -->
+                <div class="settings-section">
+                    <div class="section-label-group">
+                        <h4>3. Claves de IA (Para GitHub Pages)</h4>
+                        <p class="section-help">Si usas la web desde GitHub Pages, ingresa tus claves para procesar prendas con IA. Se guardan de forma privada en tu navegador.</p>
+                    </div>
+                    <div class="input-group">
+                        <label for="remove-bg-key-input">Remove.bg API Key:</label>
+                        <input type="password" id="remove-bg-key-input" placeholder="wo7CgdZjskLExCPabfEHCAMc">
+                    </div>
+                    <div class="input-group">
+                        <label for="gemini-key-input">Gemini API Key:</label>
+                        <input type="password" id="gemini-key-input" placeholder="AQ.Ab8RN6K-...">
+                    </div>
+                    <button type="button" id="btn-save-keys" class="btn btn-outline btn-sm" style="margin-top: 6px;">
+                        <span>Guardar Claves de IA</span>
+                    </button>
+                    <p id="keys-status-msg" class="status-note hidden"></p>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" id="btn-close-modal-footer" class="btn btn-primary" style="width: 100%;">
+                    <span>Cerrar y Continuar</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Barra de Navegación Inferior (Floating Dock) -->
     <nav class="bottom-nav">
         <div class="nav-dock">
@@ -272,6 +380,9 @@
         </div>
     </nav>
 
+    <!-- SDKs de Firebase Compatibles para Web -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <script src="config.js"></script>
     <script src="app.js"></script>
 </body>

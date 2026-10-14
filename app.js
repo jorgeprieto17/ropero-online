@@ -1,11 +1,16 @@
 // ==========================================================================
 // ROPERO ONLINE - APP JAVASCRIPT
+// Dual-Mode Architecture: Firebase Cloud Firestore + Local IndexedDB Fallback
 // ==========================================================================
 
-// Database configuration
+// IndexedDB Configuration
 const DB_NAME = 'RoperoDB';
 const STORE_NAME = 'wardrobe';
-let db;
+let dbLocal;
+
+// Firebase Cloud State
+let isCloudConnected = false;
+let dbFirestore = null;
 
 // DOM Elements
 const views = document.querySelectorAll('.view');
@@ -25,18 +30,41 @@ const wardrobeCounter = document.getElementById('wardrobe-counter');
 const categorySelectorWrapper = document.getElementById('category-selector-wrapper');
 const themeToggleBtn = document.getElementById('theme-toggle');
 
+// Modal & Cloud DOM Elements
+const btnCloudStatus = document.getElementById('btn-cloud-status');
+const cloudStatusText = document.getElementById('cloud-status-text');
+const btnOpenSettings = document.getElementById('btn-open-settings');
+const settingsModal = document.getElementById('settings-modal');
+const btnCloseSettings = document.getElementById('btn-close-settings');
+const btnCloseModalFooter = document.getElementById('btn-close-modal-footer');
+const firebaseConfigInput = document.getElementById('firebase-config-input');
+const btnConnectFirebase = document.getElementById('btn-connect-firebase');
+const btnDisconnectFirebase = document.getElementById('btn-disconnect-firebase');
+const firebaseStatusMsg = document.getElementById('firebase-status-msg');
+const btnMigrateLocal = document.getElementById('btn-migrate-local');
+const migrationStatusMsg = document.getElementById('migration-status-msg');
+const removeBgKeyInput = document.getElementById('remove-bg-key-input');
+const geminiKeyInput = document.getElementById('gemini-key-input');
+const btnSaveKeys = document.getElementById('btn-save-keys');
+const keysStatusMsg = document.getElementById('keys-status-msg');
+const connIcon = document.getElementById('conn-icon');
+const connTitle = document.getElementById('conn-title');
+const connDesc = document.getElementById('conn-desc');
+
 let currentProcessedImage = null;
 let currentCategory = "";
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
     initTheme();
-    await initDB();
+    await initLocalDB();
+    await initCloudOrFallback();
     setupNavigation();
     setupUploadHandlers();
     setupWardrobeFilters();
     setupOutfitGenerator();
     setupCategoryPills();
+    setupSettingsModal();
     loadWardrobe('all');
 });
 
@@ -75,17 +103,87 @@ function applyTheme(theme) {
 }
 
 // ==========================================================================
-// INDEXEDDB SETUP
+// FIREBASE CLOUD & LOCAL DB INITIALIZATION
 // ==========================================================================
-function initDB() {
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, 1);
+async function initCloudOrFallback() {
+    // 1. Obtener configuración de Firebase (desde config.js o desde localStorage)
+    let firebaseConfig = null;
 
-        request.onerror = () => reject("Error opening DB");
+    if (typeof CONFIG !== 'undefined' && CONFIG.FIREBASE_CONFIG && CONFIG.FIREBASE_CONFIG.apiKey) {
+        firebaseConfig = CONFIG.FIREBASE_CONFIG;
+        localStorage.setItem('ropero_firebase_config', JSON.stringify(firebaseConfig));
+        if (CONFIG.REMOVE_BG_API_KEY) localStorage.setItem('ropero_remove_bg_key', CONFIG.REMOVE_BG_API_KEY);
+        if (CONFIG.GEMINI_API_KEY) localStorage.setItem('ropero_gemini_key', CONFIG.GEMINI_API_KEY);
+    } else {
+        const storedConfig = localStorage.getItem('ropero_firebase_config');
+        if (storedConfig) {
+            try {
+                firebaseConfig = JSON.parse(storedConfig);
+            } catch (e) {
+                console.warn("Configuración guardada de Firebase inválida");
+            }
+        }
+    }
+
+    if (firebaseConfig && typeof firebase !== 'undefined') {
+        try {
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            }
+            dbFirestore = firebase.firestore();
+            isCloudConnected = true;
+            updateCloudUIState(true);
+            console.log("✅ Conectado exitosamente a Firebase Firestore");
+            return;
+        } catch (error) {
+            console.error("Fallo al conectar con Firebase:", error);
+        }
+    }
+
+    // Modo local si no hay Firebase
+    isCloudConnected = false;
+    updateCloudUIState(false);
+}
+
+function updateCloudUIState(connected) {
+    if (connected) {
+        if (btnCloudStatus) {
+            btnCloudStatus.classList.remove('offline');
+            btnCloudStatus.classList.add('online');
+        }
+        if (cloudStatusText) cloudStatusText.textContent = "Nube Conectada ☁️";
+        if (connIcon) connIcon.textContent = "🟢";
+        if (connTitle) connTitle.textContent = "Firebase Conectado";
+        if (connDesc) connDesc.textContent = "Tus prendas se sincronizan automáticamente en tiempo real en la nube.";
+        if (btnDisconnectFirebase) btnDisconnectFirebase.classList.remove('hidden');
+        if (btnMigrateLocal) btnMigrateLocal.disabled = false;
+    } else {
+        if (btnCloudStatus) {
+            btnCloudStatus.classList.remove('online');
+            btnCloudStatus.classList.add('offline');
+        }
+        if (cloudStatusText) cloudStatusText.textContent = "Modo Local";
+        if (connIcon) connIcon.textContent = "☁️";
+        if (connTitle) connTitle.textContent = "Modo Local (Sin Nube)";
+        if (connDesc) connDesc.textContent = "Tus prendas se guardan en este navegador. Conecta Firebase para sincronizar en todos tus dispositivos.";
+        if (btnDisconnectFirebase) btnDisconnectFirebase.classList.add('hidden');
+        if (btnMigrateLocal) btnMigrateLocal.disabled = true;
+    }
+}
+
+// IndexedDB Setup (Versión 4 para soportar compatibilidad con esquemas previos)
+function initLocalDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 4);
+
+        request.onerror = (e) => {
+            console.error("Error al abrir IndexedDB:", request.error);
+            reject("Error opening DB");
+        };
 
         request.onsuccess = (e) => {
-            db = e.target.result;
-            resolve(db);
+            dbLocal = e.target.result;
+            resolve(dbLocal);
         };
 
         request.onupgradeneeded = (e) => {
@@ -94,45 +192,307 @@ function initDB() {
                 const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
                 store.createIndex('category', 'category', { unique: false });
             }
+            if (!db.objectStoreNames.contains('prendas')) {
+                db.createObjectStore('prendas', { keyPath: 'id', autoIncrement: true });
+            }
         };
     });
 }
 
-function saveItemToDB(item) {
+// ==========================================================================
+// UNIFIED DATA STORAGE LAYER (CLOUD OR LOCAL)
+// ==========================================================================
+async function saveItemToStorage(item) {
+    if (isCloudConnected && dbFirestore) {
+        // En la nube: Convertir Blob a Base64 para almacenar en Firestore
+        const base64Data = (item.image instanceof Blob || item.image instanceof File)
+            ? await blobToBase64(item.image)
+            : item.image;
+
+        const docRef = await dbFirestore.collection('prendas').add({
+            image: base64Data,
+            category: item.category,
+            date: item.date || new Date().toISOString(),
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        return { id: docRef.id, ...item, image: base64Data };
+    } else {
+        // En local: Guardar en IndexedDB
+        return saveItemToLocalDB(item);
+    }
+}
+
+async function getItemsFromStorage(category = 'all') {
+    if (isCloudConnected && dbFirestore) {
+        try {
+            const snapshot = await dbFirestore.collection('prendas').get();
+            let items = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                items.push({
+                    id: doc.id,
+                    image: data.image,
+                    category: data.category || 'Desconocido',
+                    date: data.date || new Date().toISOString()
+                });
+            });
+
+            if (category !== 'all') {
+                items = items.filter(item => item.category === category);
+            }
+            return items;
+        } catch (error) {
+            console.warn("Fallo al leer de Firebase, reintentando con local:", error);
+            return getItemsFromLocalDB(category);
+        }
+    } else {
+        return getItemsFromLocalDB(category);
+    }
+}
+
+async function deleteItemFromStorage(id) {
+    if (isCloudConnected && dbFirestore) {
+        await dbFirestore.collection('prendas').doc(String(id)).delete();
+    } else {
+        await deleteItemFromLocalDB(Number(id));
+    }
+}
+
+// Helpers para IndexedDB
+function saveItemToLocalDB(item) {
     return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        if (!dbLocal) return reject("No DB");
+        const transaction = dbLocal.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
         const request = store.add(item);
-        request.onsuccess = () => resolve();
+        request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject();
     });
 }
 
-function getItemsFromDB(category = 'all') {
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
+function getItemsFromLocalDB(category = 'all') {
+    return new Promise((resolve) => {
+        if (!dbLocal) return resolve([]);
+        const storeName = dbLocal.objectStoreNames.contains(STORE_NAME) ? STORE_NAME : 'prendas';
+        const transaction = dbLocal.transaction([storeName], 'readonly');
+        const store = transaction.objectStore(storeName);
         const request = store.getAll();
 
         request.onsuccess = () => {
-            let items = request.result;
+            let items = request.result || [];
+            // Normalizar nombres si venían de 'prendas' antigua
+            items = items.map(item => ({
+                id: item.id,
+                image: item.image || item.imagen,
+                category: item.category || item.categoria || 'Top Base',
+                date: item.date || item.fecha || new Date().toISOString()
+            }));
+
             if (category !== 'all') {
                 items = items.filter(item => item.category === category);
             }
             resolve(items);
         };
-        request.onerror = () => reject();
+        request.onerror = () => resolve([]);
     });
 }
 
-function deleteItemFromDB(id) {
+function deleteItemFromLocalDB(id) {
     return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
+        if (!dbLocal) return resolve();
+        const storeName = dbLocal.objectStoreNames.contains(STORE_NAME) ? STORE_NAME : 'prendas';
+        const transaction = dbLocal.transaction([storeName], 'readwrite');
+        const store = transaction.objectStore(storeName);
         const request = store.delete(id);
         request.onsuccess = () => resolve();
         request.onerror = () => reject();
     });
+}
+
+function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+// ==========================================================================
+// SETTINGS MODAL & CLOUD CONFIGURATION
+// ==========================================================================
+function setupSettingsModal() {
+    // Abrir modal
+    if (btnCloudStatus) btnCloudStatus.addEventListener('click', openSettingsModal);
+    if (btnOpenSettings) btnOpenSettings.addEventListener('click', openSettingsModal);
+
+    // Cerrar modal
+    if (btnCloseSettings) btnCloseSettings.addEventListener('click', closeSettingsModal);
+    if (btnCloseModalFooter) btnCloseModalFooter.addEventListener('click', closeSettingsModal);
+
+    if (settingsModal) {
+        settingsModal.addEventListener('click', (e) => {
+            if (e.target === settingsModal) closeSettingsModal();
+        });
+    }
+
+    // Cargar claves de API existentes en los inputs
+    if (removeBgKeyInput) {
+        removeBgKeyInput.value = localStorage.getItem('ropero_remove_bg_key') || (typeof CONFIG !== 'undefined' ? CONFIG.REMOVE_BG_API_KEY || '' : '');
+    }
+    if (geminiKeyInput) {
+        geminiKeyInput.value = localStorage.getItem('ropero_gemini_key') || (typeof CONFIG !== 'undefined' ? CONFIG.GEMINI_API_KEY || '' : '');
+    }
+
+    // Botón Guardar Claves IA
+    if (btnSaveKeys) {
+        btnSaveKeys.addEventListener('click', () => {
+            const rKey = removeBgKeyInput.value.trim();
+            const gKey = geminiKeyInput.value.trim();
+            if (rKey) localStorage.setItem('ropero_remove_bg_key', rKey);
+            if (gKey) localStorage.setItem('ropero_gemini_key', gKey);
+
+            showStatusNote(keysStatusMsg, "success", "✅ Claves de IA guardadas en tu navegador.");
+        });
+    }
+
+    // Botón Conectar Firebase
+    if (btnConnectFirebase) {
+        btnConnectFirebase.addEventListener('click', async () => {
+            const raw = firebaseConfigInput.value.trim();
+            if (!raw) {
+                showStatusNote(firebaseStatusMsg, "error", "Por favor pega la configuración de Firebase.");
+                return;
+            }
+
+            const parsed = parseFirebaseConfig(raw);
+            if (!parsed || !parsed.apiKey || !parsed.projectId) {
+                showStatusNote(firebaseStatusMsg, "error", "No se detectaron 'apiKey' o 'projectId' válidos. Revisa el código pegado.");
+                return;
+            }
+
+            try {
+                showStatusNote(firebaseStatusMsg, "info", "Conectando con Firebase...");
+                localStorage.setItem('ropero_firebase_config', JSON.stringify(parsed));
+                
+                await initCloudOrFallback();
+                if (isCloudConnected) {
+                    showStatusNote(firebaseStatusMsg, "success", "✅ ¡Conectado con éxito a Firebase!");
+                    loadWardrobe('all');
+                } else {
+                    showStatusNote(firebaseStatusMsg, "error", "No se pudo conectar a Firestore. Verifica tus reglas de seguridad.");
+                }
+            } catch (err) {
+                console.error(err);
+                showStatusNote(firebaseStatusMsg, "error", "Error: " + err.message);
+            }
+        });
+    }
+
+    // Botón Desconectar Firebase
+    if (btnDisconnectFirebase) {
+        btnDisconnectFirebase.addEventListener('click', () => {
+            localStorage.removeItem('ropero_firebase_config');
+            isCloudConnected = false;
+            dbFirestore = null;
+            updateCloudUIState(false);
+            showStatusNote(firebaseStatusMsg, "info", "Modo nube desconectado. Operando en modo local.");
+            loadWardrobe('all');
+        });
+    }
+
+    // Botón Migrar Local a Firebase
+    if (btnMigrateLocal) {
+        btnMigrateLocal.addEventListener('click', async () => {
+            if (!isCloudConnected) {
+                showStatusNote(migrationStatusMsg, "error", "Primero debes conectar Firebase.");
+                return;
+            }
+
+            btnMigrateLocal.disabled = true;
+            showStatusNote(migrationStatusMsg, "info", "⏳ Leyendo prendas locales y subiendo a Firebase...");
+
+            try {
+                const localItems = await getItemsFromLocalDB('all');
+                if (localItems.length === 0) {
+                    showStatusNote(migrationStatusMsg, "info", "No hay prendas en el almacenamiento local para migrar.");
+                    btnMigrateLocal.disabled = false;
+                    return;
+                }
+
+                let subidas = 0;
+                for (const item of localItems) {
+                    const base64Data = (item.image instanceof Blob || item.image instanceof File)
+                        ? await blobToBase64(item.image)
+                        : item.image;
+
+                    await dbFirestore.collection('prendas').add({
+                        image: base64Data,
+                        category: item.category,
+                        date: item.date,
+                        migratedFromLocal: true
+                    });
+                    subidas++;
+                }
+
+                showStatusNote(migrationStatusMsg, "success", `✅ ¡${subidas} ${subidas === 1 ? 'prenda subida' : 'prendas subidas'} exitosamente a Firebase!`);
+                loadWardrobe('all');
+            } catch (error) {
+                console.error("Error al migrar prendas:", error);
+                showStatusNote(migrationStatusMsg, "error", "Error al migrar: " + error.message);
+            } finally {
+                btnMigrateLocal.disabled = false;
+            }
+        });
+    }
+}
+
+function openSettingsModal() {
+    if (settingsModal) settingsModal.classList.remove('hidden');
+}
+
+function closeSettingsModal() {
+    if (settingsModal) settingsModal.classList.add('hidden');
+}
+
+function showStatusNote(element, type, message) {
+    if (!element) return;
+    element.className = `status-note ${type}`;
+    element.textContent = message;
+    element.classList.remove('hidden');
+}
+
+// Parser inteligente para extraer el objeto Firebase de código pegado
+function parseFirebaseConfig(str) {
+    try {
+        return JSON.parse(str);
+    } catch (e) {
+        // Si pegaron 'const firebaseConfig = { ... }'
+        try {
+            const match = str.match(/\{[\s\S]*\}/);
+            if (match) {
+                // Reemplazar claves no entrecomilladas
+                const jsonLike = match[0]
+                    .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
+                    .replace(/'/g, '"');
+                return JSON.parse(jsonLike);
+            }
+        } catch (e2) {
+            // Extracción con expresiones regulares como fallback
+            const apiKey = (str.match(/apiKey\s*:\s*["']([^"']+)["']/) || [])[1];
+            const authDomain = (str.match(/authDomain\s*:\s*["']([^"']+)["']/) || [])[1];
+            const projectId = (str.match(/projectId\s*:\s*["']([^"']+)["']/) || [])[1];
+            const storageBucket = (str.match(/storageBucket\s*:\s*["']([^"']+)["']/) || [])[1];
+            const messagingSenderId = (str.match(/messagingSenderId\s*:\s*["']([^"']+)["']/) || [])[1];
+            const appId = (str.match(/appId\s*:\s*["']([^"']+)["']/) || [])[1];
+
+            if (apiKey && projectId) {
+                return { apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId };
+            }
+        }
+    }
+    return null;
 }
 
 // ==========================================================================
@@ -177,7 +537,6 @@ function switchToView(targetId) {
 // UPLOAD & PROCESSING LOGIC
 // ==========================================================================
 function setupUploadHandlers() {
-    // Click to select
     uploadPlaceholder.addEventListener('click', () => {
         imageInput.click();
     });
@@ -227,7 +586,7 @@ function setupUploadHandlers() {
                 btnSaveEl.innerHTML = `<span>Guardando...</span>`;
                 btnSaveEl.disabled = true;
 
-                await saveItemToDB({
+                await saveItemToStorage({
                     image: currentProcessedImage,
                     category: currentCategory || "Top Base",
                     date: new Date().toISOString()
@@ -237,7 +596,7 @@ function setupUploadHandlers() {
                 switchToView('view-wardrobe');
             } catch (error) {
                 console.error("Error al guardar:", error);
-                alert("Hubo un error al guardar la prenda.");
+                alert("Hubo un error al guardar la prenda en " + (isCloudConnected ? "Firebase" : "el almacenamiento local") + ".");
             } finally {
                 btnSaveEl.innerHTML = `
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
@@ -268,7 +627,7 @@ async function handleImageUpload(file) {
         // Clasificar con Gemini
         try {
             const result = await clasificarConGemini(blobBlanco);
-            categoria = result.categoria || "Desconocido";
+            categoria = result.categoria || "Top Base";
             const descripcion = result.descripcion || categoria;
             currentCategory = categoria;
 
@@ -287,7 +646,7 @@ async function handleImageUpload(file) {
             const labelIA = document.getElementById('label-ia')
                 || document.querySelector('.ia-detected-label');
             if (labelIA) {
-                labelIA.innerHTML = `<span>⚠️ Fallo en IA.</span> <button type="button" onclick="retryClassification()" style="margin-left: 8px; padding: 4px 10px; font-size: 0.8rem; font-weight: 600; background: var(--accent-gradient); color: white; border: none; border-radius: 999px; cursor: pointer;">↻ Reintentar</button>`;
+                labelIA.innerHTML = `<span>⚠️ Selección manual.</span> <button type="button" onclick="retryClassification()" style="margin-left: 8px; padding: 4px 10px; font-size: 0.8rem; font-weight: 600; background: var(--accent-gradient); color: white; border: none; border-radius: 999px; cursor: pointer;">↻ Reintentar</button>`;
                 labelIA.classList.remove('hidden');
             }
             highlightCategoryPill(categoria);
@@ -306,11 +665,25 @@ async function handleImageUpload(file) {
 
     } catch (error) {
         console.error("Fallo general en procesamiento:", error);
+        // Fallback: Si Remove.bg falla, permitir usar la foto original directamente
+        currentProcessedImage = file;
+        const imageUrl = URL.createObjectURL(file);
+        imagePreview.src = imageUrl;
+        imagePreview.onload = () => {
+            imagePreview.classList.remove('hidden');
+        };
+
         const labelIA = document.getElementById('label-ia')
             || document.querySelector('.ia-detected-label');
         if (labelIA) {
-            labelIA.textContent = "Error al procesar la imagen.";
+            labelIA.innerHTML = `<span>⚠️ Sin remoción de fondo (Modo foto original). Selecciona su categoría:</span>`;
             labelIA.classList.remove('hidden');
+        }
+        currentCategory = "Top Base";
+        highlightCategoryPill(currentCategory);
+
+        if (categorySelectorWrapper) {
+            categorySelectorWrapper.classList.remove('hidden');
         }
     } finally {
         if (loadingContainer) loadingContainer.classList.add('hidden');
@@ -321,7 +694,7 @@ async function handleImageUpload(file) {
     }
 }
 
-// Category selection pills in upload view
+// Pastillas de selección de categoría
 function setupCategoryPills() {
     const pills = document.querySelectorAll('.cat-pill');
     pills.forEach(pill => {
@@ -376,23 +749,28 @@ function setupWardrobeFilters() {
 }
 
 async function loadWardrobe(category) {
-    const allItems = await getItemsFromDB('all');
+    const allItems = await getItemsFromStorage('all');
     const items = category === 'all' 
         ? allItems 
         : allItems.filter(item => item.category === category);
 
     if (wardrobeCounter) {
-        wardrobeCounter.textContent = `${allItems.length} ${allItems.length === 1 ? 'prenda' : 'prendas'}`;
+        const cloudLabel = isCloudConnected ? " (Nube ☁️)" : " (Local)";
+        wardrobeCounter.textContent = `${allItems.length} ${allItems.length === 1 ? 'prenda' : 'prendas'}${cloudLabel}`;
     }
 
     wardrobeGrid.innerHTML = '';
 
     if (items.length === 0) {
+        const subMsg = isCloudConnected 
+            ? "Tus prendas se sincronizan automáticamente con Firebase."
+            : "Conecta Firebase o sube prendas en este navegador para verlas aquí.";
+
         wardrobeGrid.innerHTML = `
             <div class="wardrobe-empty-state">
                 <div class="empty-state-icon">✨</div>
                 <h3>Sin prendas en esta sección</h3>
-                <p>Añade tus prendas para empezar a crear combinaciones automáticas con IA.</p>
+                <p>${subMsg}</p>
                 <button type="button" class="btn btn-primary" onclick="switchToView('view-upload')" style="margin-top: 6px;">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
                     <span>Subir Prenda</span>
@@ -427,14 +805,14 @@ async function loadWardrobe(category) {
         wardrobeGrid.appendChild(div);
     });
 
-    // Eventos para eliminar
+    // Eventos para eliminar prenda
     wardrobeGrid.querySelectorAll('.delete-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.stopPropagation();
             const btnEl = e.currentTarget;
-            const id = Number(btnEl.getAttribute('data-id'));
+            const id = btnEl.getAttribute('data-id');
             if (confirm("¿Deseas eliminar esta prenda de tu armario?")) {
-                await deleteItemFromDB(id);
+                await deleteItemFromStorage(id);
                 const activeCategory = document.querySelector('.filter-btn.active').getAttribute('data-category');
                 loadWardrobe(activeCategory);
             }
@@ -457,17 +835,16 @@ async function generateOutfit() {
         'Calzado': document.getElementById('slot-shoes')
     };
 
-    // Efecto visual de generación
     btnGenerate.classList.add('loading');
     Object.values(slots).forEach(slot => {
         if (slot) slot.style.opacity = '0.4';
     });
 
     try {
-        const layers = await getItemsFromDB('Capa Extra');
-        const tops = await getItemsFromDB('Top Base');
-        const bottoms = await getItemsFromDB('Bottoms');
-        const shoes = await getItemsFromDB('Calzado');
+        const layers = await getItemsFromStorage('Capa Extra');
+        const tops = await getItemsFromStorage('Top Base');
+        const bottoms = await getItemsFromStorage('Bottoms');
+        const shoes = await getItemsFromStorage('Calzado');
 
         setTimeout(() => {
             if (slots['Capa Extra']) updateSlot(slots['Capa Extra'], layers, 'Sin Capa Extra', '🧥');
@@ -476,9 +853,7 @@ async function generateOutfit() {
             if (slots['Calzado']) updateSlot(slots['Calzado'], shoes, 'Sin Calzado', '👟');
 
             Object.values(slots).forEach(slot => {
-                if (slot) {
-                    slot.style.opacity = '1';
-                }
+                if (slot) slot.style.opacity = '1';
             });
 
             btnGenerate.classList.remove('loading');
@@ -514,37 +889,48 @@ function updateSlot(slotElement, itemsArray, emptyText, icon) {
 }
 
 // ==========================================================================
-// REMOVE.BG & GEMINI APIS
+// REMOVE.BG & GEMINI APIS (Soporta config.js y localStorage)
 // ==========================================================================
-async function procesarPrenda(archivoImagen) {
-    const apiKey = (typeof CONFIG !== 'undefined' && CONFIG.REMOVE_BG_API_KEY) ? CONFIG.REMOVE_BG_API_KEY : '';
-    const formData = new FormData();
+function getApiKey(name) {
+    if (name === 'REMOVE_BG') {
+        if (typeof CONFIG !== 'undefined' && CONFIG.REMOVE_BG_API_KEY) return CONFIG.REMOVE_BG_API_KEY;
+        return localStorage.getItem('ropero_remove_bg_key') || '';
+    }
+    if (name === 'GEMINI') {
+        if (typeof CONFIG !== 'undefined' && CONFIG.GEMINI_API_KEY) return CONFIG.GEMINI_API_KEY;
+        return localStorage.getItem('ropero_gemini_key') || '';
+    }
+    return '';
+}
 
+async function procesarPrenda(archivoImagen) {
+    const apiKey = getApiKey('REMOVE_BG');
+    if (!apiKey) {
+        throw new Error("No hay API Key de Remove.bg");
+    }
+
+    const formData = new FormData();
     formData.append('image_file', archivoImagen);
     formData.append('size', 'auto');
     formData.append('bg_color', '#FFFFFF');
 
-    try {
-        const respuesta = await fetch('https://api.remove.bg/v1.0/removebg', {
-            method: 'POST',
-            headers: { 'X-Api-Key': apiKey },
-            body: formData
-        });
+    const respuesta = await fetch('https://api.remove.bg/v1.0/removebg', {
+        method: 'POST',
+        headers: { 'X-Api-Key': apiKey },
+        body: formData
+    });
 
-        if (!respuesta.ok) throw new Error('Error de conexión con la API de Remove.bg');
+    if (!respuesta.ok) throw new Error('Error al conectar con Remove.bg (Status: ' + respuesta.status + ')');
 
-        const blobBlanco = await respuesta.blob();
-        return blobBlanco;
-
-    } catch (error) {
-        console.error('Fallo en el procesamiento:', error);
-        alert('Error al remover el fondo. Verifica tu conexión o API Key de Remove.bg.');
-        return null;
-    }
+    const blobBlanco = await respuesta.blob();
+    return blobBlanco;
 }
 
 async function clasificarConGemini(blobImagen) {
-    const geminiApiKey = (typeof CONFIG !== 'undefined' && CONFIG.GEMINI_API_KEY) ? CONFIG.GEMINI_API_KEY : '';
+    const geminiApiKey = getApiKey('GEMINI');
+    if (!geminiApiKey) {
+        throw new Error("No hay API Key de Gemini");
+    }
 
     const base64Image = await new Promise((resolve, reject) => {
         const img = new Image();
@@ -626,7 +1012,7 @@ window.retryClassification = async function() {
     } catch (geminiError) {
         console.warn("Fallo al reintentar clasificar con Gemini:", geminiError);
         if (labelIA) {
-            labelIA.innerHTML = `<span>⚠️ Fallo en IA.</span> <button type="button" onclick="retryClassification()" style="margin-left: 8px; padding: 4px 10px; font-size: 0.8rem; font-weight: 600; background: var(--accent-gradient); color: white; border: none; border-radius: 999px; cursor: pointer;">↻ Reintentar</button>`;
+            labelIA.innerHTML = `<span>⚠️ Selección manual.</span> <button type="button" onclick="retryClassification()" style="margin-left: 8px; padding: 4px 10px; font-size: 0.8rem; font-weight: 600; background: var(--accent-gradient); color: white; border: none; border-radius: 999px; cursor: pointer;">↻ Reintentar</button>`;
         }
     } finally {
         if (loadingContainer) loadingContainer.classList.add('hidden');

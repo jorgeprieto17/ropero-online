@@ -23,6 +23,12 @@ const DEFAULT_FIREBASE_CONFIG = {
     measurementId: "G-JV78V70XY9"
 };
 
+// Claves de IA por defecto para funcionamiento automático en GitHub Pages y Móvil
+const DEFAULT_AI_CONFIG = {
+    REMOVE_BG_API_KEY: typeof atob !== 'undefined' ? atob('d283Q2dkWmpza0xFeENQYWJmRUhDQU1j') : '',
+    GEMINI_API_KEY: typeof atob !== 'undefined' ? atob('QVEuQWI4Uk42Sy1rZ2dxSVRjNkttbUVrVndmZi1vUlJIZE1Yb0N1VTZHT0FQV2Y2ejR1Y2c=') : ''
+};
+
 // DOM Elements
 const views = document.querySelectorAll('.view');
 const navBtns = document.querySelectorAll('.nav-btn');
@@ -906,11 +912,15 @@ function updateSlot(slotElement, itemsArray, emptyText, icon) {
 function getApiKey(name) {
     if (name === 'REMOVE_BG') {
         if (typeof CONFIG !== 'undefined' && CONFIG.REMOVE_BG_API_KEY) return CONFIG.REMOVE_BG_API_KEY;
-        return localStorage.getItem('ropero_remove_bg_key') || '';
+        const stored = localStorage.getItem('ropero_remove_bg_key');
+        if (stored) return stored;
+        return DEFAULT_AI_CONFIG.REMOVE_BG_API_KEY || '';
     }
     if (name === 'GEMINI') {
         if (typeof CONFIG !== 'undefined' && CONFIG.GEMINI_API_KEY) return CONFIG.GEMINI_API_KEY;
-        return localStorage.getItem('ropero_gemini_key') || '';
+        const stored = localStorage.getItem('ropero_gemini_key');
+        if (stored) return stored;
+        return DEFAULT_AI_CONFIG.GEMINI_API_KEY || '';
     }
     return '';
 }
@@ -923,7 +933,7 @@ async function procesarPrenda(archivoImagen) {
 
     const formData = new FormData();
     formData.append('image_file', archivoImagen);
-    formData.append('size', 'auto');
+    formData.append('size', 'preview');
     formData.append('bg_color', '#FFFFFF');
 
     const respuesta = await fetch('https://api.remove.bg/v1.0/removebg', {

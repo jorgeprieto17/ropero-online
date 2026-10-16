@@ -1139,10 +1139,6 @@ function setupOutfitModeTabs() {
             tab.classList.add('active');
             const mode = tab.getAttribute('data-mode') || 'casual';
             currentOutfitMode = mode;
-            const btnText = document.getElementById('btn-generate-text');
-            if (btnText) {
-                btnText.textContent = mode === 'sport' ? 'Generar Outfit Deportivo' : 'Generar Outfit Diario';
-            }
             generateOutfit(mode);
         });
     });

@@ -73,6 +73,8 @@ const connDesc = document.getElementById('conn-desc');
 
 let currentProcessedImage = null;
 let currentCategory = "";
+let currentSubtipo = "";
+let currentDescripcion = "";
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
@@ -244,6 +246,8 @@ async function saveItemToStorage(item) {
         const docRef = await dbFirestore.collection('prendas').add({
             image: base64Data,
             category: item.category,
+            subtipo: item.subtipo || "",
+            descripcion: item.descripcion || "",
             date: item.date || new Date().toISOString(),
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
@@ -266,6 +270,8 @@ async function getItemsFromStorage(category = 'all') {
                     id: doc.id,
                     image: data.image,
                     category: data.category || 'Desconocido',
+                    subtipo: data.subtipo || "",
+                    descripcion: data.descripcion || "",
                     date: data.date || new Date().toISOString()
                 });
             });
@@ -318,6 +324,8 @@ function getItemsFromLocalDB(category = 'all') {
                 id: item.id,
                 image: item.image || item.imagen,
                 category: item.category || item.categoria || 'Top Base',
+                subtipo: item.subtipo || "",
+                descripcion: item.descripcion || item.description || "",
                 date: item.date || item.fecha || new Date().toISOString()
             }));
 
@@ -828,6 +836,8 @@ function setupUploadHandlers() {
                 await saveItemToStorage({
                     image: currentProcessedImage,
                     category: currentCategory || "Top Base",
+                    subtipo: currentSubtipo || "",
+                    descripcion: currentDescripcion || "",
                     date: new Date().toISOString()
                 });
 
@@ -925,13 +935,19 @@ async function handleImageUpload(file) {
         try {
             const imagenParaGemini = imagenFinalParaGuardar || imagenPreparada;
             const result = await clasificarConGemini(imagenParaGemini);
-            categoriaDetectada = result.categoria || "Top Base";
+            categoriaDetectada = normalizarCategoria(result.categoria);
             descripcionDetectada = result.descripcion || categoriaDetectada;
             currentCategory = categoriaDetectada;
+            currentSubtipo = result.subtipo || "";
+            currentDescripcion = descripcionDetectada;
 
             if (labelIA) {
                 const badgeFondo = bgRemovido ? "" : " <span style='font-size:0.75rem; opacity:0.8;'>(Fondo original)</span>";
-                labelIA.innerHTML = `<span>✨ IA detectó:</span> <strong>${descripcionDetectada}</strong>${badgeFondo}`;
+                const catEmoji = categoriaDetectada === 'Deportiva' ? '🏃' :
+                                 categoriaDetectada === 'Calzado' ? '👟' :
+                                 categoriaDetectada === 'Bottoms' ? '👖' :
+                                 categoriaDetectada === 'Capa Extra' ? '🧥' : '👕';
+                labelIA.innerHTML = `<span>✨ IA detectó:</span> <strong>${catEmoji} ${descripcionDetectada}</strong> <span style="font-size:0.8rem; opacity:0.85;">(${categoriaDetectada})</span>${badgeFondo}`;
             }
             highlightCategoryPill(categoriaDetectada);
         } catch (geminiError) {
@@ -1000,6 +1016,8 @@ function resetUploadView() {
     if (cameraInput) cameraInput.value = '';
     currentProcessedImage = null;
     currentCategory = null;
+    currentSubtipo = "";
+    currentDescripcion = "";
     uploadPlaceholder.classList.remove('hidden');
     previewContainer.classList.add('hidden');
     uploadActions.classList.add('hidden');
@@ -1130,6 +1148,25 @@ function setupOutfitModeTabs() {
     });
 }
 
+function isSportBottom(item) {
+    if (item && item.subtipo === 'bottom') return true;
+    const text = `${item?.descripcion || ''} ${item?.description || ''} ${item?.name || ''}`.toLowerCase();
+    return /short|bermuda|pants|pantalon|jogger|legging|malla|licra|pescador/i.test(text);
+}
+
+function isSportLayer(item) {
+    if (item && item.subtipo === 'layer') return true;
+    const text = `${item?.descripcion || ''} ${item?.description || ''} ${item?.name || ''}`.toLowerCase();
+    return /sudadera|hoodie|chamarra|rompeviento|chaleco|sueter|jacket/i.test(text);
+}
+
+function isSportTop(item) {
+    if (item && item.subtipo === 'top') return true;
+    if (isSportBottom(item) || isSportLayer(item)) return false;
+    const text = `${item?.descripcion || ''} ${item?.description || ''} ${item?.name || ''}`.toLowerCase();
+    return /playera|jersey|top|bra|tank|musculosa|remera|polo|tirantes|camiseta/i.test(text);
+}
+
 async function generateOutfit(mode = currentOutfitMode) {
     currentOutfitMode = mode;
 
@@ -1168,36 +1205,57 @@ async function generateOutfit(mode = currentOutfitMode) {
         setTimeout(() => {
             if (currentOutfitMode === 'sport') {
                 // Modo Deportivo:
-                // Si el usuario tiene prendas en categoría 'Deportiva', se usan con máxima prioridad
-                let sportPool = [...sports];
+                // REGLA ESTRICTA: NUNCA usar ropa casual o formal (camisas de vestir, sacos, pantalones formales).
+                // Únicamente se utilizan prendas de la categoría 'Deportiva' y calzado deportivo/tenis.
 
-                // 1. Top deportivo (preferir de Deportiva o Top Base)
+                // Clasificar prendas deportivas disponibles
+                const sportTops = sports.filter(i => isSportTop(i));
+                const sportBottoms = sports.filter(i => isSportBottom(i));
+                const sportLayers = sports.filter(i => isSportLayer(i));
+
+                // Prendas deportivas sin slot específico
+                let unassignedSports = sports.filter(i => 
+                    !sportTops.some(t => t.id === i.id) &&
+                    !sportBottoms.some(b => b.id === i.id) &&
+                    !sportLayers.some(l => l.id === i.id)
+                );
+
+                // 1. Top deportivo:
                 let topItem = null;
-                if (sportPool.length > 0) {
-                    topItem = sportPool[Math.floor(Math.random() * sportPool.length)];
-                    sportPool = sportPool.filter(it => it.id !== topItem.id);
-                } else if (tops.length > 0) {
-                    topItem = tops[Math.floor(Math.random() * tops.length)];
+                if (sportTops.length > 0) {
+                    topItem = sportTops[Math.floor(Math.random() * sportTops.length)];
+                } else if (unassignedSports.length > 0) {
+                    topItem = unassignedSports.shift();
                 }
 
-                // 2. Bottom deportivo (preferir de Deportiva o Bottoms)
+                // 2. Bottom deportivo:
                 let bottomItem = null;
-                if (sportPool.length > 0) {
-                    bottomItem = sportPool[Math.floor(Math.random() * sportPool.length)];
-                    sportPool = sportPool.filter(it => it.id !== bottomItem.id);
-                } else if (bottoms.length > 0) {
-                    bottomItem = bottoms[Math.floor(Math.random() * bottoms.length)];
+                if (sportBottoms.length > 0) {
+                    bottomItem = sportBottoms[Math.floor(Math.random() * sportBottoms.length)];
+                } else if (unassignedSports.length > 0) {
+                    bottomItem = unassignedSports.shift();
                 }
 
-                // 3. Calzado deportivo
-                let shoesItem = shoes.length > 0 ? shoes[Math.floor(Math.random() * shoes.length)] : null;
-
-                // 4. Capa deportiva (opcional: sudadera/chamarra)
+                // 3. Capa deportiva:
                 let layerItem = null;
-                if (sportPool.length > 0) {
-                    layerItem = sportPool[Math.floor(Math.random() * sportPool.length)];
-                } else if (layers.length > 0) {
-                    layerItem = layers[Math.floor(Math.random() * layers.length)];
+                if (sportLayers.length > 0) {
+                    layerItem = sportLayers[Math.floor(Math.random() * sportLayers.length)];
+                } else if (unassignedSports.length > 0) {
+                    layerItem = unassignedSports.shift();
+                }
+
+                // 4. Calzado deportivo / tenis:
+                let shoesItem = null;
+                if (shoes.length > 0) {
+                    const sneakers = shoes.filter(s => {
+                        const t = `${s.descripcion || ''} ${s.description || ''} ${s.name || ''}`.toLowerCase();
+                        return /tenis|sneaker|running|deportiv|gym|correr/i.test(t);
+                    });
+                    if (sneakers.length > 0) {
+                        shoesItem = sneakers[Math.floor(Math.random() * sneakers.length)];
+                    } else {
+                        shoesItem = shoes[Math.floor(Math.random() * shoes.length)];
+                    }
                 }
 
                 renderSlotItem(slots['Capa Extra'], layerItem, 'Sin Capa Deportiva', '🧥');
@@ -1212,8 +1270,25 @@ async function generateOutfit(mode = currentOutfitMode) {
                     lookbookTitle.innerHTML = `<span class="lookbook-dot" style="background:#10B981; box-shadow:0 0 10px #10B981;"></span><span>Outfit Sugerido • Deportivo 🏃</span>`;
                 }
 
+                // Si no hay prendas deportivas registradas en el armario, mostrar aviso informativo
+                const existingNotice = document.getElementById('sports-empty-notice');
+                if (sports.length === 0) {
+                    if (!existingNotice) {
+                        const noticeDiv = document.createElement('div');
+                        noticeDiv.id = 'sports-empty-notice';
+                        noticeDiv.className = 'empty-sports-banner';
+                        noticeDiv.innerHTML = `<span>ℹ️ Aún no tienes prendas en la categoría <strong>Deportiva</strong>. Sube tus playeras de gym, shorts o pants deportivos para armar tu look.</span>`;
+                        const lookbookCard = document.querySelector('.lookbook-card');
+                        if (lookbookCard) lookbookCard.appendChild(noticeDiv);
+                    }
+                } else if (existingNotice) {
+                    existingNotice.remove();
+                }
+
             } else {
                 // Modo Casual / Diario:
+                const existingNotice = document.getElementById('sports-empty-notice');
+                if (existingNotice) existingNotice.remove();
                 const layerItem = layers.length > 0 ? layers[Math.floor(Math.random() * layers.length)] : null;
                 const topItem = tops.length > 0 ? tops[Math.floor(Math.random() * tops.length)] : null;
                 const bottomItem = bottoms.length > 0 ? bottoms[Math.floor(Math.random() * bottoms.length)] : null;
@@ -1547,6 +1622,20 @@ async function procesarPrenda(archivoImagen) {
     return blobBlanco;
 }
 
+function normalizarCategoria(cat) {
+    if (!cat) return "Top Base";
+    const c = cat.trim().toLowerCase();
+    if (c.includes("deport") || c.includes("gym") || c.includes("fit") || c.includes("entrena") || c.includes("running") || c.includes("atlet")) return "Deportiva";
+    if (c.includes("calzad") || c.includes("tenis") || c.includes("zapato") || c.includes("bota") || c.includes("sneaker")) return "Calzado";
+    if (c.includes("capa") || c.includes("abrigo") || c.includes("saco") || c.includes("blazer") || c.includes("chamarra") || c.includes("sueter") || c.includes("cardigan")) return "Capa Extra";
+    if (c.includes("bottom") || c.includes("pantalon") || c.includes("jean") || c.includes("mezclilla") || c.includes("falda") || c.includes("short")) return "Bottoms";
+    if (c.includes("top") || c.includes("camisa") || c.includes("playera") || c.includes("blusa") || c.includes("polo")) return "Top Base";
+    if (c.includes("accesor")) return "Accesorio";
+
+    const valid = ["Top Base", "Capa Extra", "Bottoms", "Calzado", "Deportiva", "Accesorio"];
+    return valid.find(v => v.toLowerCase() === c) || "Top Base";
+}
+
 async function clasificarConGemini(blobImagen) {
     const geminiApiKey = getApiKey('GEMINI');
     if (!geminiApiKey) {
@@ -1560,7 +1649,7 @@ async function clasificarConGemini(blobImagen) {
             URL.revokeObjectURL(url);
             try {
                 const canvas = document.createElement('canvas');
-                const MAX_SIZE = 360;
+                const MAX_SIZE = 640;
                 let width = img.naturalWidth || img.width;
                 let height = img.naturalHeight || img.height;
 
@@ -1579,7 +1668,7 @@ async function clasificarConGemini(blobImagen) {
                 ctx.fillRect(0, 0, width, height);
                 ctx.drawImage(img, 0, 0, width, height);
 
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
                 resolve(dataUrl.split(',')[1]);
             } catch (canvasErr) {
                 const reader = new FileReader();
@@ -1598,67 +1687,117 @@ async function clasificarConGemini(blobImagen) {
         img.src = url;
     });
 
+    const systemPrompt = `Eres un estilista y clasificador visual de prendas. Analiza la imagen y clasifica la prenda en EXACTAMENTE UNA categoría:
+
+1. "Deportiva":
+   - CUALQUIER prenda diseñada para deporte, ejercicio, gimnasio, running, fitness o entrenamiento.
+   - Indicadores CLAVE: telas técnicas o sintéticas (dry-fit, poliéster deportivo, nylon, licra, spandex, mallas microperforadas), elásticos o cordones de ajuste deportivos, corte atlético, o logotipos de marcas deportivas (Nike, Adidas, Under Armour, Puma, Reebok, Gymshark, Jordan, Champion, Lululemon, etc.).
+   - Ejemplos: playeras de entrenamiento/dry-fit/compresión, jerseys deportivos (fútbol, básquetbol), shorts de gym/running, leggings o mallas de ejercicio, pants/joggers deportivos, sudaderas/hoodies de entrenamiento, tops deportivos (sports bras), chamarras rompevientos.
+   - REGLA CRÍTICA: Si es para hacer ejercicio o tiene estilo deportivo/atlético, CLASIFÍCALA SIEMPRE COMO "Deportiva" (NUNCA como Top Base ni como Bottoms).
+
+2. "Top Base":
+   - Prendas superiores de vestir CASUAL, URBANO o FORMAL.
+   - Ejemplos: camisas de vestir (con cuello rígido y botones frontales), blusas de oficina, camisas casuales de lino, playeras tipo polo de vestir, playeras básicas de algodón de uso diario urbano (que no sean de entrenamiento).
+   - REGLA CRÍTICA: Las camisas de vestir con botones o blusas formales NUNCA son Deportivas.
+
+3. "Capa Extra":
+   - Prendas exteriores de uso CASUAL o FORMAL para abrigar.
+   - Ejemplos: sacos, blazers, abrigos de vestir, gabardinas, suéteres tejidos de punto, chamarras de mezclilla o de piel. (Nota: sudaderas o rompevientos deportivos van en "Deportiva").
+
+4. "Bottoms":
+   - Prendas inferiores de uso CASUAL o FORMAL.
+   - Ejemplos: pantalones de mezclilla (jeans), pantalones de vestir/sastre, chinos, faldas casuales, bermudas de vestir. (Nota: pants de ejercicio, shorts deportivos y leggings de gym van en "Deportiva").
+
+5. "Calzado":
+   - Zapatos de vestir, botas, botines, mocasines, tenis/sneakers casuales o deportivos, sandalias.
+
+6. "Accesorio":
+   - Gorras, sombreros, cinturones, bufandas, bolsas, mochilas.
+
+Responde ÚNICAMENTE un objeto JSON con este formato:
+{
+  "categoria": "Deportiva" | "Top Base" | "Capa Extra" | "Bottoms" | "Calzado" | "Accesorio",
+  "subtipo": "top" | "bottom" | "layer" | "shoes" | "accesorio",
+  "descripcion": "nombre corto y descriptivo en español (ej: Playera Dry-Fit Nike, Camisa a Rayas Manga Larga, Short Deportivo con Elástico, Pants de Entrenamiento, etc.)"
+}`;
+
     const payload = {
         contents: [{
             parts: [
-                { text: "Clasifica la prenda. Si es ropa deportiva, de entrenamiento o gym (leggings, shorts deportivos, playeras dry-fit, pants, tops de gym) usa \"Deportiva\". Responde SOLO en JSON: {\"categoria\": \"Top Base\"|\"Capa Extra\"|\"Bottoms\"|\"Calzado\"|\"Deportiva\"|\"Accesorio\", \"descripcion\": \"nombre corto en español\"}." },
+                { text: systemPrompt },
                 { inlineData: { mimeType: "image/jpeg", data: base64Image } }
             ]
         }],
         generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 60,
+            maxOutputTokens: 600,
             responseMimeType: "application/json"
         }
     };
 
-    const modelos = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    const modelos = ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-3.5-flash'];
     let ultimoError = null;
 
     for (const modelo of modelos) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-            const urlAPI = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${geminiApiKey.trim()}`;
-            const response = await fetch(urlAPI, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-                signal: controller.signal
-            }).finally(() => clearTimeout(timeoutId));
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                if (response.status === 404) {
-                    ultimoError = new Error(`Modelo ${modelo} no disponible: ${errorText}`);
-                    continue;
-                }
-                throw new Error(`Error Gemini HTTP ${response.status}: ${errorText}`);
-            }
-
-            const data = await response.json();
-            let textoRespuesta = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            textoRespuesta = textoRespuesta.replace(/```json/g, '').replace(/```/g, '').trim();
-
+        for (let intento = 0; intento < 2; intento++) {
             try {
-                return JSON.parse(textoRespuesta);
-            } catch (e) {
-                const match = textoRespuesta.match(/\{[\s\S]*\}/);
-                if (match) {
-                    return JSON.parse(match[0]);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 9000);
+
+                const urlAPI = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${geminiApiKey.trim()}`;
+                const response = await fetch(urlAPI, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
+                }).finally(() => clearTimeout(timeoutId));
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    if (response.status === 404) {
+                        ultimoError = new Error(`Modelo ${modelo} no disponible`);
+                        break;
+                    }
+                    if (response.status === 503 && intento === 0) {
+                        await new Promise(r => setTimeout(r, 1200));
+                        continue;
+                    }
+                    throw new Error(`Error Gemini HTTP ${response.status}: ${errorText}`);
+                }
+
+                const data = await response.json();
+                let textoRespuesta = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                textoRespuesta = textoRespuesta.replace(/```json/g, '').replace(/```/g, '').trim();
+
+                let parsed = null;
+                try {
+                    parsed = JSON.parse(textoRespuesta);
+                } catch (e) {
+                    const match = textoRespuesta.match(/\{[\s\S]*\}/);
+                    if (match) {
+                        parsed = JSON.parse(match[0]);
+                    }
+                }
+
+                if (parsed && (parsed.categoria || parsed.category)) {
+                    parsed.categoria = normalizarCategoria(parsed.categoria || parsed.category);
+                    return parsed;
                 }
                 throw new Error("Respuesta inválida de Gemini: " + textoRespuesta);
+
+            } catch (err) {
+                ultimoError = err;
+                if (err.name === 'AbortError') {
+                    console.warn(`Timeout alcanzado con ${modelo}`);
+                    break;
+                }
+                if (err.message && err.message.includes('404')) {
+                    break;
+                }
+                if (intento === 0) {
+                    await new Promise(r => setTimeout(r, 1000));
+                }
             }
-        } catch (err) {
-            ultimoError = err;
-            if (err.name === 'AbortError') {
-                console.warn(`Timeout de 6s alcanzado con ${modelo}`);
-            }
-            if (err.message && err.message.includes('404')) {
-                continue;
-            }
-            throw err;
         }
     }
 
@@ -1680,10 +1819,16 @@ window.retryClassification = async function() {
 
     try {
         const result = await clasificarConGemini(currentProcessedImage);
-        currentCategory = result.categoria || "Top Base";
-        const descripcion = result.descripcion || currentCategory;
+        currentCategory = normalizarCategoria(result.categoria);
+        currentSubtipo = result.subtipo || "";
+        currentDescripcion = result.descripcion || currentCategory;
+
         if (labelIA) {
-            labelIA.innerHTML = `<span>✨ IA detectó:</span> <strong>${descripcion}</strong>`;
+            const catEmoji = currentCategory === 'Deportiva' ? '🏃' :
+                             currentCategory === 'Calzado' ? '👟' :
+                             currentCategory === 'Bottoms' ? '👖' :
+                             currentCategory === 'Capa Extra' ? '🧥' : '👕';
+            labelIA.innerHTML = `<span>✨ IA detectó:</span> <strong>${catEmoji} ${currentDescripcion}</strong> <span style="font-size:0.8rem; opacity:0.85;">(${currentCategory})</span>`;
         }
         highlightCategoryPill(currentCategory);
     } catch (geminiError) {

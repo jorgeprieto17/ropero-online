@@ -552,6 +552,10 @@ function switchToView(targetId) {
         const cat = activeFilter ? activeFilter.getAttribute('data-category') : 'all';
         loadWardrobe(cat);
     }
+
+    if (targetId === 'view-favorites') {
+        loadFavorites();
+    }
 }
 
 // ==========================================================================
@@ -1096,13 +1100,39 @@ async function loadWardrobe(category) {
 }
 
 // ==========================================================================
-// OUTFIT GENERATOR LOGIC
+// OUTFIT GENERATOR & FAVORITES LOGIC
 // ==========================================================================
+let currentOutfitMode = 'casual'; // 'casual' | 'sport'
+let currentGeneratedOutfitItems = [];
+
 function setupOutfitGenerator() {
-    btnGenerate.addEventListener('click', generateOutfit);
+    if (btnGenerate) {
+        btnGenerate.addEventListener('click', () => generateOutfit());
+    }
+    setupOutfitModeTabs();
+    setupFavoritesHandler();
 }
 
-async function generateOutfit() {
+function setupOutfitModeTabs() {
+    const tabs = document.querySelectorAll('.mode-tab');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            tabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const mode = tab.getAttribute('data-mode') || 'casual';
+            currentOutfitMode = mode;
+            const btnText = document.getElementById('btn-generate-text');
+            if (btnText) {
+                btnText.textContent = mode === 'sport' ? 'Generar Outfit Deportivo' : 'Generar Outfit Diario';
+            }
+            generateOutfit(mode);
+        });
+    });
+}
+
+async function generateOutfit(mode = currentOutfitMode) {
+    currentOutfitMode = mode;
+
     const slots = {
         'Capa Extra': document.getElementById('slot-layer'),
         'Top Base': document.getElementById('slot-top'),
@@ -1110,42 +1140,125 @@ async function generateOutfit() {
         'Calzado': document.getElementById('slot-shoes')
     };
 
-    btnGenerate.classList.add('loading');
+    const btnGen = document.getElementById('btn-generate') || btnGenerate;
+    if (btnGen) btnGen.classList.add('loading');
+
+    const btnFav = document.getElementById('btn-fav-outfit');
+    if (btnFav) {
+        btnFav.disabled = true;
+        btnFav.classList.remove('liked');
+        const favLabel = document.getElementById('fav-btn-label');
+        if (favLabel) favLabel.textContent = 'Guardar en Favoritos';
+    }
+
     Object.values(slots).forEach(slot => {
         if (slot) slot.style.opacity = '0.4';
     });
 
     try {
-        const layers = await getItemsFromStorage('Capa Extra');
-        const tops = await getItemsFromStorage('Top Base');
-        const bottoms = await getItemsFromStorage('Bottoms');
-        const shoes = await getItemsFromStorage('Calzado');
+        const allItems = await getItemsFromStorage('all');
+        const layers = allItems.filter(i => i.category === 'Capa Extra');
+        const tops = allItems.filter(i => i.category === 'Top Base');
+        const bottoms = allItems.filter(i => i.category === 'Bottoms');
+        const shoes = allItems.filter(i => i.category === 'Calzado');
+        const sports = allItems.filter(i => i.category === 'Deportiva');
+
+        let selectedItems = [];
 
         setTimeout(() => {
-            if (slots['Capa Extra']) updateSlot(slots['Capa Extra'], layers, 'Sin Capa Extra', '🧥');
-            if (slots['Top Base']) updateSlot(slots['Top Base'], tops, 'Sin Top Base', '👕');
-            if (slots['Bottoms']) updateSlot(slots['Bottoms'], bottoms, 'Sin Bottom', '👖');
-            if (slots['Calzado']) updateSlot(slots['Calzado'], shoes, 'Sin Calzado', '👟');
+            if (currentOutfitMode === 'sport') {
+                // Modo Deportivo:
+                // Si el usuario tiene prendas en categoría 'Deportiva', se usan con máxima prioridad
+                let sportPool = [...sports];
+
+                // 1. Top deportivo (preferir de Deportiva o Top Base)
+                let topItem = null;
+                if (sportPool.length > 0) {
+                    topItem = sportPool[Math.floor(Math.random() * sportPool.length)];
+                    sportPool = sportPool.filter(it => it.id !== topItem.id);
+                } else if (tops.length > 0) {
+                    topItem = tops[Math.floor(Math.random() * tops.length)];
+                }
+
+                // 2. Bottom deportivo (preferir de Deportiva o Bottoms)
+                let bottomItem = null;
+                if (sportPool.length > 0) {
+                    bottomItem = sportPool[Math.floor(Math.random() * sportPool.length)];
+                    sportPool = sportPool.filter(it => it.id !== bottomItem.id);
+                } else if (bottoms.length > 0) {
+                    bottomItem = bottoms[Math.floor(Math.random() * bottoms.length)];
+                }
+
+                // 3. Calzado deportivo
+                let shoesItem = shoes.length > 0 ? shoes[Math.floor(Math.random() * shoes.length)] : null;
+
+                // 4. Capa deportiva (opcional: sudadera/chamarra)
+                let layerItem = null;
+                if (sportPool.length > 0) {
+                    layerItem = sportPool[Math.floor(Math.random() * sportPool.length)];
+                } else if (layers.length > 0) {
+                    layerItem = layers[Math.floor(Math.random() * layers.length)];
+                }
+
+                renderSlotItem(slots['Capa Extra'], layerItem, 'Sin Capa Deportiva', '🧥');
+                renderSlotItem(slots['Top Base'], topItem, 'Sin Top Deportivo', '🏃');
+                renderSlotItem(slots['Bottoms'], bottomItem, 'Sin Bottom Deportivo', '🩳');
+                renderSlotItem(slots['Calzado'], shoesItem, 'Sin Tenis Deportivos', '👟');
+
+                selectedItems = [layerItem, topItem, bottomItem, shoesItem].filter(Boolean);
+
+                const lookbookTitle = document.querySelector('.lookbook-title');
+                if (lookbookTitle) {
+                    lookbookTitle.innerHTML = `<span class="lookbook-dot" style="background:#10B981; box-shadow:0 0 10px #10B981;"></span><span>Outfit Sugerido • Deportivo 🏃</span>`;
+                }
+
+            } else {
+                // Modo Casual / Diario:
+                const layerItem = layers.length > 0 ? layers[Math.floor(Math.random() * layers.length)] : null;
+                const topItem = tops.length > 0 ? tops[Math.floor(Math.random() * tops.length)] : null;
+                const bottomItem = bottoms.length > 0 ? bottoms[Math.floor(Math.random() * bottoms.length)] : null;
+                const shoesItem = shoes.length > 0 ? shoes[Math.floor(Math.random() * shoes.length)] : null;
+
+                renderSlotItem(slots['Capa Extra'], layerItem, 'Sin Capa Extra', '🧥');
+                renderSlotItem(slots['Top Base'], topItem, 'Sin Top Base', '👕');
+                renderSlotItem(slots['Bottoms'], bottomItem, 'Sin Bottom', '👖');
+                renderSlotItem(slots['Calzado'], shoesItem, 'Sin Calzado', '👟');
+
+                selectedItems = [layerItem, topItem, bottomItem, shoesItem].filter(Boolean);
+
+                const lookbookTitle = document.querySelector('.lookbook-title');
+                if (lookbookTitle) {
+                    lookbookTitle.innerHTML = `<span class="lookbook-dot"></span><span>Outfit Sugerido • Diario ✨</span>`;
+                }
+            }
+
+            currentGeneratedOutfitItems = selectedItems;
 
             Object.values(slots).forEach(slot => {
                 if (slot) slot.style.opacity = '1';
             });
 
-            btnGenerate.classList.remove('loading');
-        }, 400);
+            if (btnGen) btnGen.classList.remove('loading');
+
+            // Habilitar botón de favoritos si hay prendas generadas
+            if (btnFav && selectedItems.length > 0) {
+                btnFav.disabled = false;
+            }
+
+        }, 350);
 
     } catch (e) {
         console.error("Error generando outfit", e);
-        btnGenerate.classList.remove('loading');
+        if (btnGen) btnGen.classList.remove('loading');
     }
 }
 
-function updateSlot(slotElement, itemsArray, emptyText, icon) {
-    if (itemsArray.length > 0) {
-        const randomItem = itemsArray[Math.floor(Math.random() * itemsArray.length)];
-        const imageUrl = (randomItem.image instanceof Blob || randomItem.image instanceof File) 
-            ? URL.createObjectURL(randomItem.image) 
-            : randomItem.image;
+function renderSlotItem(slotElement, item, emptyText, icon) {
+    if (!slotElement) return;
+    if (item) {
+        const imageUrl = (item.image instanceof Blob || item.image instanceof File) 
+            ? URL.createObjectURL(item.image) 
+            : item.image;
         slotElement.classList.add('has-item');
         slotElement.innerHTML = `
             <div class="outfit-slot-filled">
@@ -1161,6 +1274,230 @@ function updateSlot(slotElement, itemsArray, emptyText, icon) {
             </div>
         `;
     }
+}
+
+// ==========================================================================
+// FAVORITES (FAVS) STORAGE & RENDERING
+// ==========================================================================
+function setupFavoritesHandler() {
+    const btnFav = document.getElementById('btn-fav-outfit');
+    if (!btnFav) return;
+
+    btnFav.addEventListener('click', async () => {
+        if (!currentGeneratedOutfitItems || currentGeneratedOutfitItems.length === 0) {
+            alert("Genera un outfit primero antes de guardarlo en favoritos.");
+            return;
+        }
+
+        btnFav.disabled = true;
+        const favLabel = document.getElementById('fav-btn-label');
+        if (favLabel) favLabel.textContent = 'Guardando...';
+
+        try {
+            // Asegurar que cada imagen esté en formato Base64 para persistencia confiable
+            const itemsProcessed = await Promise.all(currentGeneratedOutfitItems.map(async (it) => {
+                const imgData = (it.image instanceof Blob || it.image instanceof File)
+                    ? await blobToBase64(it.image)
+                    : it.image;
+                return {
+                    id: it.id || ('it_' + Math.random().toString(36).substr(2, 9)),
+                    category: it.category || 'Prenda',
+                    image: imgData
+                };
+            }));
+
+            const outfitObj = {
+                id: 'fav_' + Date.now(),
+                title: currentOutfitMode === 'sport' ? 'Outfit Deportivo' : 'Outfit Diario',
+                mode: currentOutfitMode,
+                date: new Date().toISOString(),
+                items: itemsProcessed
+            };
+
+            await saveFavoriteOutfitToStorage(outfitObj);
+
+            btnFav.classList.add('liked');
+            if (favLabel) favLabel.textContent = '❤️ Guardado en Favs';
+
+            // Actualizar contador si existe
+            const favCounter = document.getElementById('favorites-counter');
+            if (favCounter) {
+                const favs = getLocalFavoriteOutfits();
+                favCounter.textContent = `${favs.length} ${favs.length === 1 ? 'favorito' : 'favoritos'}`;
+            }
+
+        } catch (e) {
+            console.error("Error al guardar outfit en favoritos:", e);
+            alert("No se pudo guardar en favoritos. Inténtalo de nuevo.");
+            btnFav.disabled = false;
+            if (favLabel) favLabel.textContent = 'Guardar en Favoritos';
+        }
+    });
+}
+
+async function saveFavoriteOutfitToStorage(outfit) {
+    if (isCloudConnected && dbFirestore) {
+        try {
+            const docRef = await dbFirestore.collection('outfits_favoritos').add({
+                title: outfit.title,
+                mode: outfit.mode,
+                items: outfit.items,
+                date: outfit.date || new Date().toISOString(),
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            outfit.id = docRef.id;
+        } catch (e) {
+            console.warn("Fallo al guardar en Firebase, usando almacenamiento local:", e);
+        }
+    }
+    const favs = getLocalFavoriteOutfits();
+    favs.unshift(outfit);
+    localStorage.setItem('ropero_favoritos_v1', JSON.stringify(favs));
+    return outfit;
+}
+
+function getLocalFavoriteOutfits() {
+    try {
+        const raw = localStorage.getItem('ropero_favoritos_v1');
+        return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+async function getFavoriteOutfitsFromStorage() {
+    if (isCloudConnected && dbFirestore) {
+        try {
+            const snapshot = await dbFirestore.collection('outfits_favoritos').get();
+            let cloudFavs = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                cloudFavs.push({
+                    id: doc.id,
+                    title: data.title || 'Outfit Favorito',
+                    mode: data.mode || 'casual',
+                    date: data.date || new Date().toISOString(),
+                    items: data.items || []
+                });
+            });
+            if (cloudFavs.length > 0) {
+                localStorage.setItem('ropero_favoritos_v1', JSON.stringify(cloudFavs));
+                return cloudFavs;
+            }
+        } catch (e) {
+            console.warn("Fallo al leer favoritos de Firebase, usando local:", e);
+        }
+    }
+    return getLocalFavoriteOutfits();
+}
+
+async function deleteFavoriteOutfitFromStorage(id) {
+    if (isCloudConnected && dbFirestore) {
+        try {
+            await dbFirestore.collection('outfits_favoritos').doc(String(id)).delete();
+        } catch (e) {
+            console.warn("Error al borrar favorito de Firebase:", e);
+        }
+    }
+    const favs = getLocalFavoriteOutfits().filter(f => String(f.id) !== String(id));
+    localStorage.setItem('ropero_favoritos_v1', JSON.stringify(favs));
+}
+
+async function loadFavorites() {
+    const favoritesGrid = document.getElementById('favorites-grid');
+    const favoritesCounter = document.getElementById('favorites-counter');
+    if (!favoritesGrid) return;
+
+    favoritesGrid.innerHTML = `
+        <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-secondary);">
+            <div class="spinner-mini" style="width: 24px; height: 24px; margin-bottom: 12px;"></div>
+            <p>Cargando tus outfits favoritos...</p>
+        </div>
+    `;
+
+    const favs = await getFavoriteOutfitsFromStorage();
+
+    if (favoritesCounter) {
+        favoritesCounter.textContent = `${favs.length} ${favs.length === 1 ? 'favorito' : 'favoritos'}`;
+    }
+
+    favoritesGrid.innerHTML = '';
+
+    if (!favs || favs.length === 0) {
+        favoritesGrid.innerHTML = `
+            <div class="wardrobe-empty-state">
+                <div class="empty-state-icon" style="color: #EF4444;">❤️</div>
+                <h3>Sin outfits favoritos</h3>
+                <p>Genera combinaciones en la sección de Outfits y toca el botón ❤️ "Guardar en Favoritos" para conservarlas aquí.</p>
+                <button type="button" class="btn btn-primary" onclick="switchToView('view-outfits')" style="margin-top: 8px;">
+                    <span class="generate-sparkle">✨</span>
+                    <span>Ir a Generador de Outfits</span>
+                </button>
+            </div>
+        `;
+        return;
+    }
+
+    favs.forEach(fav => {
+        const card = document.createElement('div');
+        card.className = 'favorite-outfit-card';
+
+        const isSport = fav.mode === 'sport';
+        const modeBadge = isSport
+            ? `<span class="fav-mode-badge sport">🏃 Deportivo</span>`
+            : `<span class="fav-mode-badge casual">✨ Diario</span>`;
+
+        let formattedDate = "";
+        try {
+            formattedDate = new Date(fav.date).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
+        } catch (e) {
+            formattedDate = fav.date || "";
+        }
+
+        let slotsHtml = '';
+        if (fav.items && Array.isArray(fav.items)) {
+            slotsHtml = fav.items.map(it => {
+                const img = it.image || '';
+                return `
+                    <div class="fav-slot-item" title="${it.category || 'Prenda'}">
+                        <img src="${img}" alt="${it.category || 'Prenda'}" loading="lazy">
+                        <span class="fav-slot-pill">${it.category || ''}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        card.innerHTML = `
+            <div class="fav-card-header">
+                <div class="fav-card-meta">
+                    ${modeBadge}
+                    <span class="fav-date">${formattedDate}</span>
+                </div>
+                <button class="delete-fav-btn" data-id="${fav.id}" title="Eliminar de favoritos" aria-label="Eliminar favorito">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="fav-items-grid">
+                ${slotsHtml}
+            </div>
+        `;
+
+        favoritesGrid.appendChild(card);
+    });
+
+    favoritesGrid.querySelectorAll('.delete-fav-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const id = e.currentTarget.getAttribute('data-id');
+            if (confirm("¿Deseas quitar este look de tus favoritos?")) {
+                await deleteFavoriteOutfitFromStorage(id);
+                loadFavorites();
+            }
+        });
+    });
 }
 
 // ==========================================================================
@@ -1264,7 +1601,7 @@ async function clasificarConGemini(blobImagen) {
     const payload = {
         contents: [{
             parts: [
-                { text: "Clasifica la prenda. Responde SOLO en JSON: {\"categoria\": \"Top Base\"|\"Capa Extra\"|\"Bottoms\"|\"Calzado\"|\"Accesorio\", \"descripcion\": \"nombre corto en español\"}." },
+                { text: "Clasifica la prenda. Si es ropa deportiva, de entrenamiento o gym (leggings, shorts deportivos, playeras dry-fit, pants, tops de gym) usa \"Deportiva\". Responde SOLO en JSON: {\"categoria\": \"Top Base\"|\"Capa Extra\"|\"Bottoms\"|\"Calzado\"|\"Deportiva\"|\"Accesorio\", \"descripcion\": \"nombre corto en español\"}." },
                 { inlineData: { mimeType: "image/jpeg", data: base64Image } }
             ]
         }],

@@ -147,6 +147,7 @@
                         <button type="button" class="cat-pill" data-category="Capa Extra">🧥 Capa Extra</button>
                         <button type="button" class="cat-pill" data-category="Bottoms">👖 Bottoms</button>
                         <button type="button" class="cat-pill" data-category="Calzado">👟 Calzado</button>
+                        <button type="button" class="cat-pill" data-category="Deportiva">🏃 Deportiva</button>
                     </div>
                 </div>
 
@@ -199,6 +200,9 @@
                     <button class="filter-btn" data-category="Calzado">
                         <span>👟 Calzado</span>
                     </button>
+                    <button class="filter-btn" data-category="Deportiva">
+                        <span>🏃 Deportiva</span>
+                    </button>
                 </div>
             </div>
 
@@ -215,9 +219,20 @@
                         <span class="hero-badge">Estilista IA Personal</span>
                         <h2>Inspira tu Día</h2>
                         <p>Combina tus prendas guardadas y descubre nuevas combinaciones al instante.</p>
+
+                        <!-- Selector de Modo de Outfit (Diario vs Deportivo) -->
+                        <div class="outfit-mode-tabs">
+                            <button type="button" class="mode-tab active" data-mode="casual">
+                                <span>✨ Look Diario</span>
+                            </button>
+                            <button type="button" class="mode-tab" data-mode="sport">
+                                <span>🏃 Ropa Deportiva</span>
+                            </button>
+                        </div>
+
                         <button class="btn btn-primary generate-btn" id="btn-generate">
                             <span class="generate-sparkle">✨</span>
-                            <span>Generar Nuevo Outfit</span>
+                            <span id="btn-generate-text">Generar Outfit Diario</span>
                         </button>
                     </div>
                 </div>
@@ -280,7 +295,32 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Barra de acción: Guardar en Favoritos -->
+                    <div class="outfit-actions-bar">
+                        <button type="button" class="btn-fav-outfit" id="btn-fav-outfit" disabled>
+                            <svg class="heart-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                            </svg>
+                            <span id="fav-btn-label">Guardar en Favoritos</span>
+                        </button>
+                    </div>
                 </div>
+            </div>
+        </section>
+
+        <!-- Vista: Outfits Favoritos -->
+        <section id="view-favorites" class="view hidden">
+            <div class="wardrobe-header">
+                <div>
+                    <span class="section-pill">Guardados</span>
+                    <h2>Mis Outfits Favoritos</h2>
+                </div>
+                <div id="favorites-counter" class="counter-badge">0 favoritos</div>
+            </div>
+
+            <div class="favorites-grid" id="favorites-grid">
+                <!-- Renderizado dinámico de outfits favoritos -->
             </div>
         </section>
     </main>
@@ -321,6 +361,15 @@
                     </svg>
                 </div>
                 <span>Outfits</span>
+            </button>
+            <button class="nav-btn" data-target="view-favorites" aria-label="Outfits favoritos">
+                <div class="nav-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                    </svg>
+                </div>
+                <span>Favs</span>
             </button>
         </div>
     </nav>

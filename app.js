@@ -899,8 +899,25 @@ async function handleImageUpload(file) {
 
         currentProcessedImage = imagenFinalParaGuardar;
 
-        // 3. Clasificación con Gemini Vision (SIEMPRE se ejecuta sobre la imagen disponible)
-        updateLoadingText("Clasificando con Gemini Vision...", "Detectando tipo de prenda...");
+        // Desbloquear la interfaz inmediatamente: mostrar foto, botones y selector
+        if (loadingContainer) loadingContainer.classList.add('hidden');
+        if (categorySelectorWrapper) categorySelectorWrapper.classList.remove('hidden');
+        if (uploadActions) {
+            uploadActions.classList.remove('hidden');
+            uploadActions.style.display = 'grid';
+        }
+
+        currentCategory = "Top Base";
+        highlightCategoryPill("Top Base");
+
+        const labelIA = document.getElementById('label-ia')
+            || document.querySelector('.ia-detected-label');
+        if (labelIA) {
+            labelIA.innerHTML = `<span>✨ Detectando prenda con IA...</span>`;
+            labelIA.classList.remove('hidden');
+        }
+
+        // 3. Clasificación con Gemini Vision en segundo plano ultrarrápido (sin congelar la pantalla)
         try {
             const imagenParaGemini = imagenFinalParaGuardar || imagenPreparada;
             const result = await clasificarConGemini(imagenParaGemini);
@@ -908,29 +925,17 @@ async function handleImageUpload(file) {
             descripcionDetectada = result.descripcion || categoriaDetectada;
             currentCategory = categoriaDetectada;
 
-            const labelIA = document.getElementById('label-ia')
-                || document.querySelector('.ia-detected-label');
             if (labelIA) {
                 const badgeFondo = bgRemovido ? "" : " <span style='font-size:0.75rem; opacity:0.8;'>(Fondo original)</span>";
                 labelIA.innerHTML = `<span>✨ IA detectó:</span> <strong>${descripcionDetectada}</strong>${badgeFondo}`;
-                labelIA.classList.remove('hidden');
             }
             highlightCategoryPill(categoriaDetectada);
         } catch (geminiError) {
-            console.warn("Fallo al clasificar con Gemini:", geminiError);
-            currentCategory = "Top Base";
-            const labelIA = document.getElementById('label-ia')
-                || document.querySelector('.ia-detected-label');
+            console.warn("Aviso al clasificar con Gemini:", geminiError);
             if (labelIA) {
                 const textoFondo = bgRemovido ? "Fondo removido." : "Fondo original.";
-                labelIA.innerHTML = `<span>ℹ️ ${textoFondo} Selecciona la categoría manualmente:</span> <button type="button" onclick="retryClassification()" style="margin-left: 8px; padding: 4px 10px; font-size: 0.8rem; font-weight: 600; background: var(--accent-gradient); color: white; border: none; border-radius: 999px; cursor: pointer;">↻ Reintentar IA</button>`;
-                labelIA.classList.remove('hidden');
+                labelIA.innerHTML = `<span>ℹ️ ${textoFondo} Selecciona la categoría:</span>`;
             }
-            highlightCategoryPill("Top Base");
-        }
-
-        if (categorySelectorWrapper) {
-            categorySelectorWrapper.classList.remove('hidden');
         }
 
     } catch (generalError) {
@@ -945,7 +950,7 @@ async function handleImageUpload(file) {
         const labelIA = document.getElementById('label-ia')
             || document.querySelector('.ia-detected-label');
         if (labelIA) {
-            labelIA.innerHTML = `<span>⚠️ No se pudo procesar automáticamente. Selecciona la categoría:</span>`;
+            labelIA.innerHTML = `<span>⚠️ Selecciona la categoría:</span>`;
             labelIA.classList.remove('hidden');
         }
         currentCategory = "Top Base";
@@ -1218,7 +1223,7 @@ async function clasificarConGemini(blobImagen) {
             URL.revokeObjectURL(url);
             try {
                 const canvas = document.createElement('canvas');
-                const MAX_SIZE = 800;
+                const MAX_SIZE = 360;
                 let width = img.naturalWidth || img.width;
                 let height = img.naturalHeight || img.height;
 
@@ -1237,7 +1242,7 @@ async function clasificarConGemini(blobImagen) {
                 ctx.fillRect(0, 0, width, height);
                 ctx.drawImage(img, 0, 0, width, height);
 
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
                 resolve(dataUrl.split(',')[1]);
             } catch (canvasErr) {
                 const reader = new FileReader();
@@ -1259,10 +1264,15 @@ async function clasificarConGemini(blobImagen) {
     const payload = {
         contents: [{
             parts: [
-                { text: "Clasifica la prenda de esta imagen. Responde SOLO con un JSON válido exacto: {\"categoria\": \"Bottoms\", \"descripcion\": \"Pantalón de mezclilla\"}. Las opciones válidas para 'categoria' son: 'Top Base' (playeras, camisas, blusas), 'Capa Extra' (chamarras, suéteres, sudaderas, abrigos), 'Bottoms' (pantalones, shorts, faldas), 'Calzado' o 'Accesorio'. La 'descripcion' debe ser un nombre natural y corto de la prenda." },
+                { text: "Clasifica la prenda. Responde SOLO en JSON: {\"categoria\": \"Top Base\"|\"Capa Extra\"|\"Bottoms\"|\"Calzado\"|\"Accesorio\", \"descripcion\": \"nombre corto en español\"}." },
                 { inlineData: { mimeType: "image/jpeg", data: base64Image } }
             ]
-        }]
+        }],
+        generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 60,
+            responseMimeType: "application/json"
+        }
     };
 
     const modelos = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
@@ -1270,12 +1280,16 @@ async function clasificarConGemini(blobImagen) {
 
     for (const modelo of modelos) {
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
+
             const urlAPI = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${geminiApiKey.trim()}`;
             const response = await fetch(urlAPI, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            }).finally(() => clearTimeout(timeoutId));
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -1301,6 +1315,9 @@ async function clasificarConGemini(blobImagen) {
             }
         } catch (err) {
             ultimoError = err;
+            if (err.name === 'AbortError') {
+                console.warn(`Timeout de 6s alcanzado con ${modelo}`);
+            }
             if (err.message && err.message.includes('404')) {
                 continue;
             }

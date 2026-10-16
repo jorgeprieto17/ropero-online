@@ -34,6 +34,9 @@ const views = document.querySelectorAll('.view');
 const navBtns = document.querySelectorAll('.nav-btn');
 const uploadPlaceholder = document.getElementById('upload-placeholder');
 const imageInput = document.getElementById('image-input');
+const cameraInput = document.getElementById('camera-input');
+const btnTriggerCamera = document.getElementById('btn-trigger-camera');
+const btnTriggerGallery = document.getElementById('btn-trigger-gallery');
 const previewContainer = document.getElementById('preview-container');
 const imagePreview = document.getElementById('image-preview');
 const loadingContainer = document.getElementById('loading-container');
@@ -552,43 +555,257 @@ function switchToView(targetId) {
 }
 
 // ==========================================================================
-// UPLOAD & PROCESSING LOGIC
+// UPLOAD & PROCESSING LOGIC (Soporte Multi-dispositivo, HEIC, Normalización)
 // ==========================================================================
+
+function updateLoadingText(title, subtext) {
+    if (!loadingContainer) return;
+    const h4 = loadingContainer.querySelector('h4');
+    const p = loadingContainer.querySelector('.loading-subtext');
+    if (h4 && title) h4.textContent = title;
+    if (p && subtext) p.textContent = subtext;
+}
+
+// Detectar si un archivo o blob es formato HEIC/HEIF
+async function isHeicFormat(fileOrBlob) {
+    if (!fileOrBlob) return false;
+    const name = (fileOrBlob.name || '').toLowerCase();
+    const type = (fileOrBlob.type || '').toLowerCase();
+    if (type.includes('heic') || type.includes('heif') || name.endsWith('.heic') || name.endsWith('.heif')) {
+        return true;
+    }
+    try {
+        if (fileOrBlob.size >= 16) {
+            const slice = fileOrBlob.slice(0, 16);
+            const buffer = await slice.arrayBuffer();
+            const view = new DataView(buffer);
+            const ftyp = String.fromCharCode(view.getUint8(4), view.getUint8(5), view.getUint8(6), view.getUint8(7));
+            if (ftyp === 'ftyp') {
+                const brand = String.fromCharCode(view.getUint8(8), view.getUint8(9), view.getUint8(10), view.getUint8(11)).toLowerCase();
+                if (['heic', 'heix', 'heim', 'heis', 'hevc', 'mif1', 'msf1'].includes(brand)) {
+                    return true;
+                }
+            }
+        }
+    } catch (e) {
+        // Ignorar error al leer bytes
+    }
+    return false;
+}
+
+// Convertir HEIC y optimizar/redimensionar cualquier imagen a JPEG de alta calidad
+async function prepararImagenParaProcesar(fileOrBlob) {
+    let currentBlob = fileOrBlob;
+
+    // 1. Detectar si es formato HEIC/HEIF (fotos de iPhone desde Galería o Files)
+    const isHeic = await isHeicFormat(currentBlob);
+    if (isHeic) {
+        if (typeof heic2any !== 'undefined') {
+            try {
+                updateLoadingText("Adaptando formato iPhone...", "Convirtiendo HEIC a JPEG compatible...");
+                const heicBlob = new Blob([currentBlob], { type: 'image/heic' });
+                const converted = await heic2any({
+                    blob: heicBlob,
+                    toType: 'image/jpeg',
+                    quality: 0.90
+                });
+                currentBlob = Array.isArray(converted) ? converted[0] : converted;
+                console.log("✅ Imagen HEIC convertida exitosamente a JPEG");
+            } catch (heicError) {
+                console.warn("Fallo al convertir con heic2any, continuando con original:", heicError);
+            }
+        } else {
+            console.warn("Librería heic2any no disponible.");
+        }
+    }
+
+    // 2. Normalizar a JPEG estándar (máximo 1280px, compresión de alta calidad)
+    // Esto garantiza que fotos de 20-40MB de iPhones/cámaras no rompan Remove.bg ni Firestore ni Gemini
+    updateLoadingText("Optimizando imagen...", "Ajustando resolución y contraste...");
+    const cleanJpeg = await normalizarAJpeg(currentBlob, 1280, 0.88);
+    return cleanJpeg;
+}
+
+function normalizarAJpeg(blobOrFile, maxDimension = 1280, quality = 0.88) {
+    return new Promise((resolve) => {
+        if (!(blobOrFile instanceof Blob) && !(blobOrFile instanceof File)) {
+            return resolve(blobOrFile);
+        }
+
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(blobOrFile);
+
+        img.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            try {
+                let width = img.naturalWidth || img.width;
+                let height = img.naturalHeight || img.height;
+                if (!width || !height) {
+                    return resolve(blobOrFile);
+                }
+
+                if (width > maxDimension || height > maxDimension) {
+                    if (width > height) {
+                        height = Math.round((height * maxDimension) / width);
+                        width = maxDimension;
+                    } else {
+                        width = Math.round((width * maxDimension) / height);
+                        height = maxDimension;
+                    }
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+
+                // Fondo blanco base
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, width, height);
+                ctx.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob((resultBlob) => {
+                    if (resultBlob && resultBlob.size > 0) {
+                        const finalFile = new File([resultBlob], 'prenda.jpg', { type: 'image/jpeg' });
+                        resolve(finalFile);
+                    } else {
+                        resolve(blobOrFile);
+                    }
+                }, 'image/jpeg', quality);
+            } catch (err) {
+                console.warn("Error al procesar canvas:", err);
+                resolve(blobOrFile);
+            }
+        };
+
+        img.onerror = (err) => {
+            URL.revokeObjectURL(objectUrl);
+            console.warn("No se pudo decodificar con Image(), usando blob original:", err);
+            resolve(blobOrFile);
+        };
+
+        img.src = objectUrl;
+    });
+}
+
 function setupUploadHandlers() {
-    uploadPlaceholder.addEventListener('click', () => {
+    // Botones de acción directa
+    if (btnTriggerCamera && cameraInput) {
+        btnTriggerCamera.addEventListener('click', (e) => {
+            e.stopPropagation();
+            cameraInput.click();
+        });
+    }
+
+    if (btnTriggerGallery && imageInput) {
+        btnTriggerGallery.addEventListener('click', (e) => {
+            e.stopPropagation();
+            imageInput.click();
+        });
+    }
+
+    // Clic en la tarjeta de carga general (abre selector sin tocar los botones hijos)
+    uploadPlaceholder.addEventListener('click', (e) => {
+        if (e.target.closest('#btn-trigger-camera') || e.target.closest('#btn-trigger-gallery')) {
+            return;
+        }
         imageInput.click();
     });
 
-    // Drag & Drop
-    ['dragenter', 'dragover'].forEach(eventName => {
-        uploadPlaceholder.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            uploadPlaceholder.classList.add('dragover');
-        });
-    });
+    // Helper para extraer archivo de drop o dataTransfer
+    async function extractFileFromEvent(e) {
+        const dt = e.dataTransfer;
+        if (!dt) return null;
 
-    ['dragleave', 'drop'].forEach(eventName => {
-        uploadPlaceholder.addEventListener(eventName, (e) => {
+        // 1. Archivos directos
+        if (dt.files && dt.files.length > 0) {
+            return dt.files[0];
+        }
+
+        // 2. Elementos en DataTransferItemList
+        if (dt.items && dt.items.length > 0) {
+            for (let i = 0; i < dt.items.length; i++) {
+                const item = dt.items[i];
+                if (item.kind === 'file') {
+                    const f = item.getAsFile();
+                    if (f) return f;
+                }
+            }
+        }
+
+        // 3. Si se arrastró un enlace o elemento de imagen web
+        const url = dt.getData('URL') || dt.getData('text/uri-list');
+        if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:image/'))) {
+            try {
+                const res = await fetch(url);
+                return await res.blob();
+            } catch (err) {
+                console.warn("No se pudo obtener imagen desde URL arrastrada:", err);
+            }
+        }
+
+        return null;
+    }
+
+    // Drag & Drop sobre placeholder y contenedor de subida
+    const dropZones = [uploadPlaceholder, document.querySelector('.upload-container')].filter(Boolean);
+
+    dropZones.forEach(zone => {
+        ['dragenter', 'dragover'].forEach(eventName => {
+            zone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                uploadPlaceholder.classList.add('dragover');
+            });
+        });
+
+        ['dragleave'].forEach(eventName => {
+            zone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                uploadPlaceholder.classList.remove('dragover');
+            });
+        });
+
+        zone.addEventListener('drop', async (e) => {
             e.preventDefault();
             e.stopPropagation();
             uploadPlaceholder.classList.remove('dragover');
+
+            const file = await extractFileFromEvent(e);
+            if (file) {
+                handleImageUpload(file);
+            }
         });
     });
 
-    uploadPlaceholder.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-        if (files && files[0]) {
-            handleImageUpload(files[0]);
+    // Prevenir que el navegador abra la imagen si se suelta accidentalmente en la ventana
+    window.addEventListener('dragover', (e) => e.preventDefault());
+    window.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        const uploadView = document.getElementById('view-upload');
+        if (uploadView && uploadView.classList.contains('active')) {
+            const file = await extractFileFromEvent(e);
+            if (file) {
+                handleImageUpload(file);
+            }
         }
     });
 
+    // Listeners para ambos inputs
     imageInput.addEventListener('change', async (e) => {
         if (e.target.files && e.target.files[0]) {
             handleImageUpload(e.target.files[0]);
         }
     });
+
+    if (cameraInput) {
+        cameraInput.addEventListener('change', async (e) => {
+            if (e.target.files && e.target.files[0]) {
+                handleImageUpload(e.target.files[0]);
+            }
+        });
+    }
 
     btnCancel.addEventListener('click', resetUploadView);
 
@@ -627,63 +844,97 @@ function setupUploadHandlers() {
 }
 
 async function handleImageUpload(file) {
+    if (!file) return;
+
     uploadPlaceholder.classList.add('hidden');
     previewContainer.classList.remove('hidden');
     imagePreview.classList.add('hidden');
     imagePreview.removeAttribute('src');
 
-    if (loadingContainer) loadingContainer.classList.remove('hidden');
+    if (loadingContainer) {
+        loadingContainer.classList.remove('hidden');
+        updateLoadingText("Procesando Prenda con IA", "Preparando y optimizando imagen...");
+    }
 
-    let categoria = "Desconocido";
+    let imagenPreparada = file;
+    let imagenFinalParaGuardar = null;
+    let bgRemovido = false;
+    let categoriaDetectada = "Top Base";
+    let descripcionDetectada = "";
 
     try {
-        const blobBlanco = await procesarPrenda(file);
-        if (!blobBlanco) throw new Error("Fallo al remover fondo");
-
-        currentProcessedImage = blobBlanco;
-
-        // Clasificar con Gemini
+        // 1. Preparación y normalización (Soporta HEIC de iPhone, WebP, JPG, fotos de alta resolución)
         try {
-            const result = await clasificarConGemini(blobBlanco);
-            categoria = result.categoria || "Top Base";
-            const descripcion = result.descripcion || categoria;
-            currentCategory = categoria;
-
-            const labelIA = document.getElementById('label-ia')
-                || document.querySelector('.ia-detected-label');
-            if (labelIA) {
-                labelIA.innerHTML = `<span>✨ IA detectó:</span> <strong>${descripcion}</strong>`;
-                labelIA.classList.remove('hidden');
-            }
-            highlightCategoryPill(categoria);
-        } catch (geminiError) {
-            console.warn("Fallo al clasificar con Gemini:", geminiError);
-            categoria = "Top Base";
-            currentCategory = categoria;
-
-            const labelIA = document.getElementById('label-ia')
-                || document.querySelector('.ia-detected-label');
-            if (labelIA) {
-                labelIA.innerHTML = `<span>⚠️ Selección manual.</span> <button type="button" onclick="retryClassification()" style="margin-left: 8px; padding: 4px 10px; font-size: 0.8rem; font-weight: 600; background: var(--accent-gradient); color: white; border: none; border-radius: 999px; cursor: pointer;">↻ Reintentar</button>`;
-                labelIA.classList.remove('hidden');
-            }
-            highlightCategoryPill(categoria);
+            imagenPreparada = await prepararImagenParaProcesar(file);
+        } catch (prepErr) {
+            console.warn("Aviso en preparación:", prepErr);
+            imagenPreparada = file;
         }
 
-        // Mostrar imagen procesada
-        const imageUrl = URL.createObjectURL(blobBlanco);
-        imagePreview.src = imageUrl;
+        // Mostrar vista previa inmediata de la imagen optimizada
+        const tempPreviewUrl = URL.createObjectURL(imagenPreparada);
+        imagePreview.src = tempPreviewUrl;
         imagePreview.onload = () => {
             imagePreview.classList.remove('hidden');
         };
+
+        // 2. Remoción de Fondo con Remove.bg
+        updateLoadingText("Removiendo fondo con IA...", "Creando recorte con fondo blanco de estudio...");
+        try {
+            const blobBlanco = await procesarPrenda(imagenPreparada);
+            if (blobBlanco && blobBlanco.size > 0) {
+                imagenFinalParaGuardar = blobBlanco;
+                bgRemovido = true;
+                const blancoUrl = URL.createObjectURL(blobBlanco);
+                imagePreview.src = blancoUrl;
+                console.log("✅ Fondo removido exitosamente con Remove.bg");
+            } else {
+                throw new Error("Blob de Remove.bg vacío");
+            }
+        } catch (removeBgError) {
+            console.warn("Remove.bg no pudo remover el fondo:", removeBgError.message);
+            imagenFinalParaGuardar = imagenPreparada;
+            bgRemovido = false;
+        }
+
+        currentProcessedImage = imagenFinalParaGuardar;
+
+        // 3. Clasificación con Gemini Vision (SIEMPRE se ejecuta sobre la imagen disponible)
+        updateLoadingText("Clasificando con Gemini Vision...", "Detectando tipo de prenda...");
+        try {
+            const imagenParaGemini = imagenFinalParaGuardar || imagenPreparada;
+            const result = await clasificarConGemini(imagenParaGemini);
+            categoriaDetectada = result.categoria || "Top Base";
+            descripcionDetectada = result.descripcion || categoriaDetectada;
+            currentCategory = categoriaDetectada;
+
+            const labelIA = document.getElementById('label-ia')
+                || document.querySelector('.ia-detected-label');
+            if (labelIA) {
+                const badgeFondo = bgRemovido ? "" : " <span style='font-size:0.75rem; opacity:0.8;'>(Fondo original)</span>";
+                labelIA.innerHTML = `<span>✨ IA detectó:</span> <strong>${descripcionDetectada}</strong>${badgeFondo}`;
+                labelIA.classList.remove('hidden');
+            }
+            highlightCategoryPill(categoriaDetectada);
+        } catch (geminiError) {
+            console.warn("Fallo al clasificar con Gemini:", geminiError);
+            currentCategory = "Top Base";
+            const labelIA = document.getElementById('label-ia')
+                || document.querySelector('.ia-detected-label');
+            if (labelIA) {
+                const textoFondo = bgRemovido ? "Fondo removido." : "Fondo original.";
+                labelIA.innerHTML = `<span>ℹ️ ${textoFondo} Selecciona la categoría manualmente:</span> <button type="button" onclick="retryClassification()" style="margin-left: 8px; padding: 4px 10px; font-size: 0.8rem; font-weight: 600; background: var(--accent-gradient); color: white; border: none; border-radius: 999px; cursor: pointer;">↻ Reintentar IA</button>`;
+                labelIA.classList.remove('hidden');
+            }
+            highlightCategoryPill("Top Base");
+        }
 
         if (categorySelectorWrapper) {
             categorySelectorWrapper.classList.remove('hidden');
         }
 
-    } catch (error) {
-        console.error("Fallo general en procesamiento:", error);
-        // Fallback: Si Remove.bg falla, permitir usar la foto original directamente
+    } catch (generalError) {
+        console.error("Fallo general en procesamiento:", generalError);
         currentProcessedImage = file;
         const imageUrl = URL.createObjectURL(file);
         imagePreview.src = imageUrl;
@@ -694,7 +945,7 @@ async function handleImageUpload(file) {
         const labelIA = document.getElementById('label-ia')
             || document.querySelector('.ia-detected-label');
         if (labelIA) {
-            labelIA.innerHTML = `<span>⚠️ Sin remoción de fondo (Modo foto original). Selecciona su categoría:</span>`;
+            labelIA.innerHTML = `<span>⚠️ No se pudo procesar automáticamente. Selecciona la categoría:</span>`;
             labelIA.classList.remove('hidden');
         }
         currentCategory = "Top Base";
@@ -736,7 +987,8 @@ function highlightCategoryPill(category) {
 }
 
 function resetUploadView() {
-    imageInput.value = '';
+    if (imageInput) imageInput.value = '';
+    if (cameraInput) cameraInput.value = '';
     currentProcessedImage = null;
     currentCategory = null;
     uploadPlaceholder.classList.remove('hidden');
@@ -932,7 +1184,8 @@ async function procesarPrenda(archivoImagen) {
     }
 
     const formData = new FormData();
-    formData.append('image_file', archivoImagen);
+    const fileName = (archivoImagen instanceof File && archivoImagen.name) ? archivoImagen.name : 'prenda.jpg';
+    formData.append('image_file', archivoImagen, fileName);
     formData.append('size', 'preview');
     formData.append('bg_color', '#FFFFFF');
 
@@ -942,7 +1195,11 @@ async function procesarPrenda(archivoImagen) {
         body: formData
     });
 
-    if (!respuesta.ok) throw new Error('Error al conectar con Remove.bg (Status: ' + respuesta.status + ')');
+    if (!respuesta.ok) {
+        const errorDetail = await respuesta.text().catch(() => '');
+        console.error(`Error Remove.bg (${respuesta.status}):`, errorDetail);
+        throw new Error(`Error Remove.bg (${respuesta.status}): ${errorDetail}`);
+    }
 
     const blobBlanco = await respuesta.blob();
     return blobBlanco;
@@ -955,31 +1212,48 @@ async function clasificarConGemini(blobImagen) {
     }
 
     const base64Image = await new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(blobImagen);
         const img = new Image();
         img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const MAX_SIZE = 600;
-            let width = img.width;
-            let height = img.height;
+            URL.revokeObjectURL(url);
+            try {
+                const canvas = document.createElement('canvas');
+                const MAX_SIZE = 800;
+                let width = img.naturalWidth || img.width;
+                let height = img.naturalHeight || img.height;
 
-            if (width > height && width > MAX_SIZE) {
-                height *= MAX_SIZE / width;
-                width = MAX_SIZE;
-            } else if (height > MAX_SIZE) {
-                width *= MAX_SIZE / height;
-                height = MAX_SIZE;
+                if (width > height && width > MAX_SIZE) {
+                    height = Math.round((height * MAX_SIZE) / width);
+                    width = MAX_SIZE;
+                } else if (height > MAX_SIZE) {
+                    width = Math.round((width * MAX_SIZE) / height);
+                    height = MAX_SIZE;
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, width, height);
+                ctx.drawImage(img, 0, 0, width, height);
+
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                resolve(dataUrl.split(',')[1]);
+            } catch (canvasErr) {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.toString().split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(blobImagen);
             }
-
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-            resolve(dataUrl.split(',')[1]);
         };
-        img.onerror = () => reject(new Error("Fallo al comprimir imagen"));
-        img.src = URL.createObjectURL(blobImagen);
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result.toString().split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(blobImagen);
+        };
+        img.src = url;
     });
 
     const payload = {
@@ -991,23 +1265,50 @@ async function clasificarConGemini(blobImagen) {
         }]
     };
 
-    const urlAPI = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiApiKey.trim()}`;
+    const modelos = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    let ultimoError = null;
 
-    const response = await fetch(urlAPI, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
+    for (const modelo of modelos) {
+        try {
+            const urlAPI = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${geminiApiKey.trim()}`;
+            const response = await fetch(urlAPI, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Error Gemini HTTP ${response.status}: ${errorText}`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                if (response.status === 404) {
+                    ultimoError = new Error(`Modelo ${modelo} no disponible: ${errorText}`);
+                    continue;
+                }
+                throw new Error(`Error Gemini HTTP ${response.status}: ${errorText}`);
+            }
+
+            const data = await response.json();
+            let textoRespuesta = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            textoRespuesta = textoRespuesta.replace(/```json/g, '').replace(/```/g, '').trim();
+
+            try {
+                return JSON.parse(textoRespuesta);
+            } catch (e) {
+                const match = textoRespuesta.match(/\{[\s\S]*\}/);
+                if (match) {
+                    return JSON.parse(match[0]);
+                }
+                throw new Error("Respuesta inválida de Gemini: " + textoRespuesta);
+            }
+        } catch (err) {
+            ultimoError = err;
+            if (err.message && err.message.includes('404')) {
+                continue;
+            }
+            throw err;
+        }
     }
 
-    const data = await response.json();
-    let textoRespuesta = data.candidates[0].content.parts[0].text;
-    textoRespuesta = textoRespuesta.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(textoRespuesta);
+    throw ultimoError || new Error("No se pudo clasificar con Gemini.");
 }
 
 // Global retry function

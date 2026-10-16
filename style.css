@@ -393,7 +393,47 @@ h1, h2, h3, h4 {
 .upload-subtext {
     font-size: 0.9rem;
     color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+.upload-trigger-buttons {
+    display: flex;
+    gap: 12px;
     margin-bottom: 20px;
+    width: 100%;
+    max-width: 320px;
+    justify-content: center;
+}
+
+.btn-upload-option {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 18px;
+    border-radius: 14px;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.btn-upload-option:hover {
+    border-color: var(--accent-color);
+    background: rgba(255, 107, 107, 0.08);
+    color: var(--accent-color);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px var(--accent-glow);
+}
+
+.btn-upload-option:active {
+    transform: scale(0.97);
 }
 
 .upload-chips {
